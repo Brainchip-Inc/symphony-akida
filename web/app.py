@@ -147,7 +147,9 @@ def api_run_samples():
         try:
             r = c.infer(sample)
             rows.append({"i": i, "node": r["host"], "cls": r["cls"],
-                         "cls_name": r["cls_name"], "us": r["inference_us"]})
+                         "cls_name": r["cls_name"], "us": r["inference_us"],
+                         "hardware": r.get("hardware"), "mode": r.get("mode"),
+                         "device": r.get("device")})
             hist[r["cls_name"]] = hist.get(r["cls_name"], 0) + 1
         except AkidaServiceError as e:
             rows.append({"i": i, "node": c.base_url, "error": str(e)})
@@ -188,6 +190,9 @@ PAGE = r"""<!doctype html><html><head><meta charset=utf-8>
  button:hover{border-color:var(--acc)} button.acc{background:var(--acc);color:#04121f;border-color:var(--acc);font-weight:700}
  button.danger:hover{border-color:var(--err)}
  .cur{color:var(--ok)} .pill{font-size:11px;color:var(--mut);border:1px solid var(--line);border-radius:20px;padding:1px 8px}
+ .hw{color:#04121f;background:var(--ok);border-radius:20px;padding:1px 9px;font-size:11px;font-weight:700}
+ .sw{color:#04121f;background:var(--warn);border-radius:20px;padding:1px 9px;font-size:11px;font-weight:700}
+ .ready{color:var(--ok);border:1px solid var(--ok);border-radius:20px;padding:1px 9px;font-size:11px}
  input[type=text]{background:#0f1421;border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:6px 9px;width:420px;font:inherit}
  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
  .bar{height:14px;background:var(--acc);border-radius:3px}
@@ -211,7 +216,7 @@ PAGE = r"""<!doctype html><html><head><meta charset=utf-8>
      <button class=acc onclick=runsamples()>▶ Run across fleet</button>
      <span id=runsum class=muted></span></div>
    <div id=hist style=margin:14px:0></div>
-   <table id=results style=margin-top:10px><thead><tr><th>#</th><th>node</th><th>class</th><th>latency µs</th></tr></thead><tbody></tbody></table>
+   <table id=results style=margin-top:10px><thead><tr><th>#</th><th>node</th><th>class</th><th>latency µs</th><th>ran on</th></tr></thead><tbody></tbody></table>
  </div>
  <div class=panel><h2>Log</h2><div id=log></div></div>
 </main>
@@ -220,9 +225,25 @@ const $=s=>document.querySelector(s), api=(p,b)=>fetch(p,b?{method:'POST',header
 function log(m){$('#log').textContent=('['+new Date().toLocaleTimeString()+'] '+m+'\n')+$('#log').textContent;}
 async function refresh(){
   const f=await api('/api/fleet');
-  $('#fleet').innerHTML=f.nodes.map(n=>`<div class=node><span class="dot ${n.up?'up':'down'}"></span>${n.url.replace('http://','')}<br>
-    <span class=muted>${n.up?(n.host||''):'down'}</span><br>${n.up?('model: <b class='+(n.model?'cur':'muted')+'>'+(n.model||'—')+'</b>'):''}
-    ${n.up&&n.akida_version?'<br><span class=pill>akida '+n.akida_version+'</span>':''}</div>`).join('');
+  $('#fleet').innerHTML=f.nodes.map(n=>{
+    let badge='';
+    if(n.up){
+      if(n.model){
+        badge = n.akida_mapped
+          ? `<span class=hw>● ON-CHIP · AKD1000</span> <span class=muted>${n.device||''}</span>`
+          : `<span class=sw>▲ SOFTWARE (CPU)</span> <span class=muted title="${(n.map_error||'').replace(/"/g,'')}">not on v1 silicon</span>`;
+      } else {
+        badge = n.hardware_present
+          ? `<span class=ready>◆ AKD1000 attached</span> <span class=muted>${n.device||''} · idle</span>`
+          : `<span class=sw>no chip</span>`;
+      }
+    }
+    return `<div class=node><span class="dot ${n.up?'up':'down'}"></span>${n.url.replace('http://','')}<br>
+      <span class=muted>${n.up?(n.host||''):'down'}</span><br>
+      ${n.up?('model: <b class='+(n.model?'cur':'muted')+'>'+(n.model||'—')+'</b>'):''}<br>
+      ${badge}
+      ${n.up&&n.akida_version?'<br><span class=pill>akida '+n.akida_version+'</span>':''}</div>`;
+  }).join('');
   const m=await api('/api/models'); const cur=m.current&&m.current.name;
   $('#shared').textContent=' ';
   $('#models tbody').innerHTML=(m.models||[]).map(x=>`<tr><td>${x.name} ${x.name===cur?'<span class=pill style="color:var(--ok)">current</span>':''}</td>
@@ -237,10 +258,12 @@ async function stage(){const p=$('#stagepath').value.trim();if(!p)return;log('st
 async function runsamples(){const f=$('#ds').value;if(!f)return;log('run workload '+f+'…');$('#runsum').textContent='running…';
   const r=await api('/api/run_samples',{file:f});
   if(!r.ok){$('#runsum').textContent='error: '+r.error;return;}
-  $('#runsum').textContent=`${r.rows.length} samples · ${r.nodes_used} node(s) · ${r.wall_s}s wall · avg ${r.avg_us}µs/infer`;
+  const nhw=r.rows.filter(x=>x.hardware).length;
+  $('#runsum').innerHTML=`${r.rows.length} samples · ${r.nodes_used} node(s) · ${r.wall_s}s wall · avg ${r.avg_us}µs/infer · `+
+    (nhw===r.rows.length?`<span class=hw>all ${nhw} ON-CHIP</span>`:`<span class=sw>${nhw}/${r.rows.length} on-chip</span>`);
   const mx=Math.max(1,...Object.values(r.histogram));
   $('#hist').innerHTML=Object.entries(r.histogram).map(([k,v])=>`<div class=row><span style=width:110px>${k}</span><div class=bar style=width:${v/mx*300}px></div><span class=mono>&nbsp;${v}</span></div>`).join('');
-  $('#results tbody').innerHTML=r.rows.map(x=>`<tr><td class=mono>${x.i}</td><td>${(x.node||'').replace('.local','')}</td><td>${x.error?('<span style=color:var(--err)>'+x.error+'</span>'):x.cls_name}</td><td class=mono>${x.us||''}</td></tr>`).join('');
+  $('#results tbody').innerHTML=r.rows.map(x=>`<tr><td class=mono>${x.i}</td><td>${(x.node||'').replace('.local','')}</td><td>${x.error?('<span style=color:var(--err)>'+x.error+'</span>'):x.cls_name}</td><td class=mono>${x.us||''}</td><td>${x.hardware?'<span class=hw>AKD1000</span>':(x.mode==='software'?'<span class=sw>CPU</span>':'')}</td></tr>`).join('');
   log('workload done: '+r.rows.length+' inferences');refresh();}
 refresh();setInterval(refresh,5000);
 </script></body></html>"""
