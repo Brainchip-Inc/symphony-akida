@@ -48,13 +48,13 @@ registry (next section).
 ## 1. Get the container image
 
 The image is distributed via GitHub Container Registry (GHCR), not committed to
-git. Replace `Brainchip-Inc` with the BrainChip GitHub org.
+git (the 6.8 GB tarball exceeds GitHub's limits).
 
 ```bash
-docker pull ghcr.io/Brainchip-Inc/symphony-akida:7.3.4
-docker images ghcr.io/Brainchip-Inc/symphony-akida
+docker pull ghcr.io/brainchip-inc/symphony-akida:7.3.4
+docker images ghcr.io/brainchip-inc/symphony-akida
 # (optional) re-tag to the short name the runbook uses
-docker tag ghcr.io/Brainchip-Inc/symphony-akida:7.3.4 symphonyce:7.3.4
+docker tag ghcr.io/brainchip-inc/symphony-akida:7.3.4 symphonyce:7.3.4
 ```
 
 If you're offline / have the tarball instead:
@@ -86,7 +86,7 @@ docker run -d --network symcluster1 \
     --device=/dev/akida$n:/dev/akida0 \
     -e HOST_ROLE=COMPUTE \
     -v /opt/symphony/shared:/shared \
-    ghcr.io/Brainchip-Inc/symphony-akida:7.3.4
+    ghcr.io/brainchip-inc/symphony-akida:7.3.4
 ```
 
 Verify a node is on-chip: the dashboard fleet status shows **ON-CHIP · AKD1000**
