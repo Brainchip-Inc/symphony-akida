@@ -18,16 +18,14 @@ Run:
 """
 import json
 import os
-import sys
 import time
 
 from flask import Flask, jsonify, render_template_string, request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, "..", "client"))
 from akida_client import AkidaServiceClient, AkidaServiceError  # noqa: E402
 
-SAMPLES_DIR = os.path.join(HERE, "..", "samples")
+SAMPLES_DIR = os.path.join(HERE, "samples")
 NODES = [u.strip() for u in os.environ.get(
     "AKIDA_NODES",
     "http://localhost:8791,http://localhost:8792,http://localhost:8793"
