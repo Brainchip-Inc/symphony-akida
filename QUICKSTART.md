@@ -6,7 +6,7 @@ reference (HTTP API, first-boot internals, build-from-source) see
 **[BRAINCHIP-DEMO.md](BRAINCHIP-DEMO.md)**.
 
 <p align="center">
-  <img src="docs/dashboard.svg" alt="SymAkida dashboard" width="820">
+  <img src=".images/nodes.png" alt="SymAkida dashboard" width="820">
   <br><em>The dashboard: live fleet, model load/hot-swap, and a workload fanned across the chips.</em>
 </p>
 
@@ -196,6 +196,18 @@ Then apply the `DistributeBy` fix above to actually spread those 5 instances
 | Akida service (per node) | `http://localhost:8790` … `8794` (one per chip) | — |
 | Management console (PMC) | `https://localhost:8443/platform` | `Admin` / `Admin` |
 
+> The console's cert is self-signed, so your browser will show a security
+> warning first — click through it (Chrome: "Advanced" → "Proceed to
+> localhost (unsafe)"; Firefox: "Advanced" → "Accept the Risk and
+> Continue"). **Open it in a real browser, not VS Code's Simple Browser** —
+> Simple Browser has no click-through for untrusted certs and just fails
+> with `ERR_CONNECTION_REFUSED` instead of showing the warning.
+
+<p align="center">
+  <img src=".images/soam.png" alt="Symphony Cluster Management Console" width="820">
+  <br><em>PMC dashboard: 6/6 hosts OK (1 master + 5 compute), AkidaGenericService allocated 5/5 slots.</em>
+</p>
+
 Launch the dashboard **from the repo root** — the dashboard is `app.py` at the
 root, next to `akida_client.py` (running `web/app.py` fails to import it):
 
@@ -239,6 +251,16 @@ in Step 2.
 **What you should see:** a results table fills in — one row per sample, showing
 the **node** it ran on, the predicted **class**, and the **latency (µs)**.
 That's the workload round-robining across every live chip. 🎉
+
+<p align="center">
+  <img src=".images/inference.png" alt="Sample workload results across the fleet" width="820">
+  <br><em>50 samples fanned across all 5 nodes, ~0.37s wall clock, ~3.9ms/inference.</em>
+</p>
+
+> The dataset dropdown resets to its first entry a few seconds after any
+> run (it's rebuilt every 5s poll) — the results table and histogram don't
+> change, only the dropdown's displayed selection. If you're comparing the
+> two, trust the results table, not what the dropdown currently shows.
 
 <details>
 <summary>Prefer the command line?</summary>
