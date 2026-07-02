@@ -32,7 +32,7 @@ reference (HTTP API, first-boot internals, build-from-source) see
 sudo apt-get install -y git-lfs   # or: brew install git-lfs
 git lfs install
 ```
-Without it, the `.h5`/`.json` files clone as tiny pointer stubs.
+Without it, the `.fbz`/`.json` files clone as tiny pointer stubs.
 </details>
 
 Pull the image from GHCR and give it the short name the run commands use:
@@ -93,6 +93,11 @@ for n in 0 1 2 3 4; do
     -v /opt/symphony/shared:/shared \
     symphonyce:7.3.4
 done
+
+# stage the 2 extra demo models this fork adds — ready-made .fbz, no
+# conversion needed, just drop them where the service looks:
+mkdir -p /opt/symphony/shared/models
+cp .models/*.fbz .models/*_meta.json /opt/symphony/shared/models/
 ```
 
 > **First boot takes a few minutes.** The cluster initialises, seeds the demo
@@ -206,8 +211,10 @@ many you launched; the dashboard auto-detects which are live.
 
 **What you should see:** the **Fleet** panel lists your live compute nodes as
 green dots with hostname and akida SDK version (red/"down" for any that
-aren't serving). The **Models** panel shows the 3 demo `.fbz` models baked
-into the image.
+aren't serving). The **Models** panel shows 5 `.fbz` models — 3 baked into
+the image (`surface_search_classifier`, `voice_auth`, `esm_classifier`) plus
+the 2 this fork adds (`kws_keyword_spotting`, `vww_person_detect`), staged
+in Step 2.
 
 > Inference on this image always runs on the akida **software backend**
 > (`Model.forward()`) — device passthrough gets the container access to the
@@ -222,12 +229,12 @@ into the image.
 
 ## Step 4 · Run the demo
 
-1. In **Models**, click **Load** on `surface_search_classifier` — of the 3
-   models baked into the image (`surface_search_classifier`, `voice_auth`,
-   `esm_classifier`), it's the only one with a matching bundled sample
-   dataset for step 2.
-2. Pick the **surface_search_classifier** dataset in **Sample workload across
-   the chips**, then click **▶ Run across fleet**.
+1. In **Models**, click **Load** on any of the 3 models with a bundled sample
+   dataset: `surface_search_classifier`, `kws_keyword_spotting`, or
+   `vww_person_detect` (`voice_auth` and `esm_classifier` don't have a
+   matching dataset under [`samples/`](samples/), so skip those for this step).
+2. Pick the matching dataset in **Sample workload across the chips**, then
+   click **▶ Run across fleet**.
 
 **What you should see:** a results table fills in — one row per sample, showing
 the **node** it ran on, the predicted **class**, and the **latency (µs)**.

@@ -23,7 +23,9 @@ build-from-source — see **[BRAINCHIP-DEMO.md](BRAINCHIP-DEMO.md)**.
   device passthrough; the dashboard shows per-node **ON-CHIP (AKD1000)** vs
   **SOFTWARE (CPU)** status.
 - **Two extra models** in [`.models/`](.models/) — a visual-wake-word person
-  detector and a keyword-spotting model (quantized `iq8_wq4_aq4` `.h5`).
+  detector and a keyword-spotting model, shipped as ready-to-load `.fbz`
+  (no conversion step needed; QUICKSTART stages them alongside the 3 models
+  baked into the image).
 - **Sample workloads** in [`samples/`](samples/) for the dashboard's
   "Run across fleet" feature.
 
@@ -36,7 +38,7 @@ build-from-source — see **[BRAINCHIP-DEMO.md](BRAINCHIP-DEMO.md)**.
 | `app.py`, `demo.py`, `akida_client.py` | Top-level dashboard + CLI + HTTP client |
 | [web/](web/) | Laptop control dashboard (Flask) — see [web/README.md](web/README.md) |
 | [symakida-client/](symakida-client/) | Standalone laptop client bundle — see [symakida-client/RUN.md](symakida-client/RUN.md) |
-| `.models/` | Source Akida models (`.h5`) added by this fork |
+| `.models/` | Two extra ready-to-load Akida models (`.fbz`) added by this fork |
 | `samples/` | Bundled sample inputs (`.json`) for fleet workloads |
 
 The 6.8 GB Docker image is **not** committed to git — it's distributed via
@@ -44,7 +46,7 @@ GitHub Container Registry (GHCR). QUICKSTART covers the pull.
 
 ## Cloning (Git LFS)
 
-Model (`*.h5`) and sample (`samples/*.json`) files are stored with **Git LFS** —
+Model (`*.fbz`) and sample (`samples/*.json`) files are stored with **Git LFS** —
 install it before cloning or you'll get pointer stubs:
 
 ```bash
