@@ -217,6 +217,7 @@ PAGE = r"""<!doctype html><html><head><meta charset=utf-8>
 const $=s=>document.querySelector(s), api=(p,b)=>fetch(p,b?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}:{}).then(r=>r.json());
 function log(m){$('#log').textContent=('['+new Date().toLocaleTimeString()+'] '+m+'\n')+$('#log').textContent;}
 async function refresh(){
+  const dsSel=$('#ds').value;
   const f=await api('/api/fleet');
   $('#fleet').innerHTML=f.nodes.map(n=>`<div class=node><span class="dot ${n.up?'up':'down'}"></span>${n.url.replace('http://','')}<br>
     <span class=muted>${n.up?(n.host||''):'down'}</span><br>${n.up?('model: <b class='+(n.model?'cur':'muted')+'>'+(n.model||'—')+'</b>'):''}
@@ -228,6 +229,7 @@ async function refresh(){
     <td class=mono>${x.size_bytes?(x.size_bytes/1024).toFixed(0)+'k':''}</td>
     <td><button onclick="load('${x.name}')">${x.name===cur?'Reload':'Load'}</button></td></tr>`).join('')||'<tr><td colspan=5 class=muted>no models staged</td></tr>';
   const s=await api('/api/samples'); $('#ds').innerHTML=(s.datasets||[]).map(d=>`<option value="${d.file}">${d.model} — ${d.n} samples (${d.input_shape.join('×')})</option>`).join('');
+  if(dsSel) $('#ds').value=dsSel;
 }
 async function load(n){log('load '+n+' on fleet…');const r=await api('/api/load',{name:n});log('load: '+r.results.map(x=>x.url.replace('http://','')+(x.ok?' ✓':' ✗ '+x.error)).join('  '));refresh();}
 async function unload(){log('unload all…');await api('/api/unload',{});refresh();}
