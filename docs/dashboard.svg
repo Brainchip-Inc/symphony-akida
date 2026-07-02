@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 700" font-family="ui-sans-serif,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+  <defs>
+    <style>
+      .panel{fill:#131a2e;stroke:#263149;stroke-width:1;rx:10}
+      .h2{fill:#d7e0f0;font-size:15px;font-weight:700}
+      .txt{fill:#c3cee2;font-size:13px}
+      .muted{fill:#7c8aa5;font-size:12px}
+      .mono{fill:#c3cee2;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+      .hw{fill:#3ad07a;font-size:12px;font-weight:700}
+      .acc{fill:#35c6f4}
+    </style>
+  </defs>
+
+  <!-- window -->
+  <rect x="0" y="0" width="1160" height="700" rx="14" fill="#0b0f1a"/>
+  <rect x="0" y="0" width="1160" height="46" rx="14" fill="#0f1524"/>
+  <rect x="0" y="30" width="1160" height="16" fill="#0f1524"/>
+  <circle cx="26" cy="23" r="6" fill="#ff5d6c"/>
+  <circle cx="48" cy="23" r="6" fill="#f6c453"/>
+  <circle cx="70" cy="23" r="6" fill="#3ad07a"/>
+  <rect x="300" y="12" width="560" height="22" rx="11" fill="#1c2333"/>
+  <text x="580" y="27" text-anchor="middle" class="mono">http://localhost:5001</text>
+
+  <!-- header -->
+  <text x="34" y="86" fill="#d7e0f0" font-size="26" font-weight="800">◈ SymAkida</text>
+  <text x="196" y="86" class="muted" font-size="13">neuromorphic model service · load / unload / hot-swap on the Symphony Akida fleet</text>
+
+  <!-- Fleet panel -->
+  <rect class="panel" x="34" y="110" width="360" height="330" rx="10"/>
+  <text x="52" y="140" class="h2">Fleet</text>
+  <g>
+    <rect x="52" y="156" width="324" height="80" rx="8" fill="#0f1524" stroke="#263149"/>
+    <text x="68" y="182" class="txt" font-weight="700">symphony-compute-1</text>
+    <circle cx="74" cy="208" r="4" fill="#3ad07a"/><text x="86" y="212" class="hw">ON-CHIP · AKD1000</text>
+    <text x="240" y="212" class="muted">/dev/akida0</text>
+
+    <rect x="52" y="244" width="324" height="80" rx="8" fill="#0f1524" stroke="#263149"/>
+    <text x="68" y="270" class="txt" font-weight="700">symphony-compute-2</text>
+    <circle cx="74" cy="296" r="4" fill="#3ad07a"/><text x="86" y="300" class="hw">ON-CHIP · AKD1000</text>
+    <text x="240" y="300" class="muted">/dev/akida0</text>
+
+    <rect x="52" y="332" width="324" height="80" rx="8" fill="#0f1524" stroke="#263149"/>
+    <text x="68" y="358" class="txt" font-weight="700">symphony-compute-3</text>
+    <circle cx="74" cy="384" r="4" fill="#3ad07a"/><text x="86" y="388" class="hw">ON-CHIP · AKD1000</text>
+    <text x="240" y="388" class="muted">/dev/akida0</text>
+  </g>
+
+  <!-- Models panel -->
+  <rect class="panel" x="410" y="110" width="716" height="150" rx="10"/>
+  <text x="428" y="140" class="h2">Models</text>
+  <text x="520" y="140" class="muted">/shared/models</text>
+  <g class="mono">
+    <rect x="428" y="156" width="500" height="26" rx="6" fill="#0f1524"/>
+    <text x="442" y="174">voice_auth.fbz</text>
+    <rect x="938" y="156" width="70" height="26" rx="6" fill="#35c6f4"/><text x="973" y="174" text-anchor="middle" fill="#04121f" font-weight="700">Load</text>
+    <rect x="428" y="190" width="500" height="26" rx="6" fill="#0f1524"/>
+    <text x="442" y="208">vww_person_detect.fbz</text>
+    <rect x="938" y="190" width="70" height="26" rx="6" fill="#1c2333" stroke="#263149"/><text x="973" y="208" text-anchor="middle" class="txt">Load</text>
+    <rect x="428" y="224" width="500" height="26" rx="6" fill="#0f1524"/>
+    <text x="442" y="242">kws_keyword_spotting.fbz</text>
+    <rect x="938" y="224" width="70" height="26" rx="6" fill="#1c2333" stroke="#263149"/><text x="973" y="242" text-anchor="middle" class="txt">Load</text>
+  </g>
+
+  <!-- Sample workload panel -->
+  <rect class="panel" x="410" y="272" width="716" height="168" rx="10"/>
+  <text x="428" y="302" class="h2">Sample workload across the chips</text>
+  <rect x="428" y="316" width="150" height="28" rx="6" fill="#35c6f4"/>
+  <text x="503" y="335" text-anchor="middle" fill="#04121f" font-weight="700">▶ Run across fleet</text>
+  <g class="mono" font-size="12">
+    <text x="428" y="368" class="muted">#   node        class            µs      on</text>
+    <text x="428" y="390">0   compute-1   person           418   </text><text x="1060" y="390" class="hw" text-anchor="end">AKD1000</text>
+    <text x="428" y="410">1   compute-2   no_person        402   </text><text x="1060" y="410" class="hw" text-anchor="end">AKD1000</text>
+    <text x="428" y="430">2   compute-3   person           431   </text><text x="1060" y="430" class="hw" text-anchor="end">AKD1000</text>
+  </g>
+
+  <!-- placeholder ribbon -->
+  <rect x="0" y="470" width="1160" height="230" fill="#0b0f1a"/>
+  <rect x="34" y="500" width="1092" height="170" rx="12" fill="#0f1524" stroke="#35c6f4" stroke-width="1.5" stroke-dasharray="7 6"/>
+  <text x="580" y="560" text-anchor="middle" fill="#35c6f4" font-size="22" font-weight="800">PLACEHOLDER — dashboard mock-up</text>
+  <text x="580" y="595" text-anchor="middle" class="txt" font-size="14">Replace this with a real screenshot of your running dashboard.</text>
+  <text x="580" y="622" text-anchor="middle" class="muted" font-size="13" font-family="ui-monospace,Menlo,monospace">save it as docs/dashboard.png, then point QUICKSTART.md at dashboard.png</text>
+</svg>

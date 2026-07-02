@@ -24,7 +24,12 @@ Everything ships in one image: `symphonyce:7.3.4`.
 > **Akida note:** these containers have no physical AKD1000, so inference
 > runs on the akida **software backend** (`Model.forward()`); the service
 > also maps each model to a virtual `AKD1500` as the "fits-on-silicon"
-> proof. On real AKD1000/1500 hardware the same code runs on-chip.
+> proof. **Correction:** that virtual map is a throwaway copy used only for
+> the fits-on-silicon check — `infer()` always calls `forward()` on the
+> original *unmapped* model, so this worker runs in software even with a
+> real AKD1000 passed through via `--device`. Running actual inference on
+> the physical chip would need `akida_worker.py` changed to `map()` a real
+> device (from `akida.devices()`) and `forward()` that mapped copy instead.
 
 ---
 
@@ -76,20 +81,31 @@ come up (Liberty is slow on the bundled 2021 JRE — this is expected).
 > **Spreading across all chips.** The service auto-registers at master
 > first-boot and comes up on the first compute node that joined; because
 > it's a preStart service it does not rebalance as the other computes
-> join. The image already bakes `ComputeHosts DistributeBy=EqualFreeSlot`,
-> so once `egosh resource list` shows all compute nodes `ok`, one
-> re-enable spreads it 1-per-host across the fleet:
+> join. **Correction, verified against a running cluster:** the image does
+> **not** actually ship `ComputeHosts DistributeBy=EqualFreeSlot` —
+> `ConsumerTrees.xml` has that `PolicyParameter` present but empty, so a
+> plain disable/enable just packs every instance onto the same first host,
+> repeatedly. You have to set the value and push it before the
+> disable/enable does anything useful:
 >
 > ```bash
 > docker exec symphony-master bash -lc '
+>   sed -i "/<ResourceGroupName>ComputeHosts<\/ResourceGroupName>/,+2 s#<PolicyParameter ParameterName=.DistributeBy./>#<PolicyParameter ParameterName=\"DistributeBy\">EqualFreeSlot</PolicyParameter>#" \
+>     /shared/kernel/conf/ConsumerTrees.xml
 >   source /opt/ibm/spectrumcomputing/profile.platform
 >   egosh user logon -u Admin -x Admin
->   echo Y | soamcontrol app disable AkidaGenericService; sleep 30
+>   egosh consumer applyresplan -f /shared/kernel/conf/ConsumerTrees.xml
+>   echo Y | soamcontrol app disable AkidaGenericService; sleep 10
 >   echo Y | soamcontrol app enable  AkidaGenericService'
-> # then 8791, 8792, 8793 all serve (give the SIs ~1-2 min to spawn)
+> # then 8791, 8792, 8793 all serve (give the SIs ~30-60s to spawn)
 > ```
 >
-> Single-node (8791) works out of the box without this step.
+> Also note `numOfSlotsForPreloadedServices="3"` is hardcoded in
+> `AkidaGenericService.xml` — with more than 3 compute nodes, only 3 will
+> ever get an instance regardless of the fix above, unless you bump that
+> value too (`soamreg -f` the edited profile while the app is disabled).
+>
+> Single-node (8791) works out of the box without any of this.
 
 ---
 
@@ -161,11 +177,13 @@ docker network rm symcluster1
   on one host). **This is expected, not a failure.** Single-node load /
   unload / infer works fine in this state. To spread 1-per-host, wait
   until `egosh resource list` shows every compute node `ok`, then run the
-  one-shot disable/enable in §2 — `DistributeBy=EqualFreeSlot` is already
-  baked, so the re-enable places one SI per chip. (Root cause history:
-  the spread also requires the resource-plan `DistributeBy` to be
-  `EqualFreeSlot`, which empty-by-default stacks greedily; that's baked
-  into the image now.)
+  disable/enable in §2 — **but note the plain disable/enable alone doesn't
+  do it**: the resource plan's `DistributeBy` parameter for `ComputeHosts`
+  ships empty, not `EqualFreeSlot` as previously documented here, so
+  Symphony packs every instance back onto the same host every time. Patch
+  `ConsumerTrees.xml` and push it with `egosh consumer applyresplan` first
+  (commands in §2 above), then the disable/enable actually places one SI
+  per chip.
 - **Console (8443) is slow to first paint** — ~3–6 min after first boot.
   Liberty installs its features for ~150s on the bundled 2021 JRE; the
   service heartbeat window is raised to 300s so the controller doesn't
