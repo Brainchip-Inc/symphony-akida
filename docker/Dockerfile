@@ -13,5 +13,11 @@ RUN rm -rf /opt/akida-service
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+# Our SOAM service (python3.6 ServiceContainer + python3.12 on-chip worker +
+# wrapper + profile) and a prebuilt deploy package for the entrypoint to
+# register on the master's first boot.
+COPY src/apps/batch-inference/service/ /opt/akida-service/
+RUN chmod +x /opt/akida-service/*.sh && /opt/akida-service/build_package.sh
+
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["--hold"]

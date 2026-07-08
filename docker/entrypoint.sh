@@ -38,6 +38,14 @@ if [ -n "${EGO_DEFINE_NCPUS:-}" ]; then
     log "EGO_DEFINE_NCPUS=$EGO_DEFINE_NCPUS"
 fi
 
+# Persist per-node settings for the SOAM wrapper. SOAM launches the service
+# instance with a clean env, so the worker cannot read the container env
+# directly; the wrapper sources this file. AKIDA_DEVICE_INDEX selects the chip.
+if [ -d "$akida_dir" ]; then
+    echo "export AKIDA_DEVICE_INDEX=${AKIDA_DEVICE_INDEX:-0}" > "$akida_dir/node.env"
+    log "node.env: AKIDA_DEVICE_INDEX=${AKIDA_DEVICE_INDEX:-0}"
+fi
+
 # SSH access (optional): pass -e SSH_PUBLIC_KEY to enable key login as egoadmin.
 setup_ssh() {
     command -v sshd >/dev/null 2>&1 || { log "sshd not installed; skipping SSH"; return; }
@@ -58,31 +66,6 @@ setup_ssh
 # (LIM needs it), so bounce those calls through su with the profile re-sourced.
 as_egoadmin() {
     su - egoadmin -c "source $EGO_TOP/profile.platform >/dev/null 2>&1; $*"
-}
-
-register_akida_service() {
-    local xml="$akida_dir/AkidaGenericService.xml"
-    local pkg="$akida_dir/AkidaGenericServicePackage.v1.tar.gz"
-    if [ ! -f "$xml" ] || [ ! -f "$pkg" ]; then
-        log "no Akida service baked at $akida_dir; skipping registration"
-        return
-    fi
-    if soamview app AkidaGenericService >/dev/null 2>&1; then
-        log "AkidaGenericService already registered; skipping"
-        return
-    fi
-    log "registering AkidaGenericService"
-    egosh user logon -u Admin -x "$admin_pw" >/dev/null
-
-    echo y | egosh consumer add /AkidaServices                    -a Admin -e egoadmin 2>/dev/null || true
-    echo y | egosh consumer add /AkidaServices/GenericInference   -a Admin -e egoadmin 2>/dev/null || true
-    egosh consumer addrg /AkidaServices                   -g ComputeHosts    2>/dev/null || true
-    egosh consumer addrg /AkidaServices/GenericInference  -g ComputeHosts    2>/dev/null || true
-
-    soamdeploy add AkidaGenericServicePackage.v1 -p "$pkg" -c /AkidaServices/GenericInference -f
-    soamreg "$xml" -f
-    echo Y | soamcontrol app enable AkidaGenericService 2>/dev/null || true
-    log "AkidaGenericService registered + enabled"
 }
 
 # Seed the shared models dir from a baked/mounted source, if present.
@@ -122,7 +105,7 @@ MANAGEMENT)
         sleep 2
     done
 
-    [ "$first_boot" = "1" ] && register_akida_service
+    [ "$first_boot" = "1" ] && log "cluster initialized; register the service via launch/up.sh"
     ;;
 COMPUTE)
     log "waiting for master shared ego.conf..."
