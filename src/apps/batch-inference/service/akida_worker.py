@@ -87,9 +87,8 @@ class Chip:
         if not os.path.isfile(path):
             raise FileNotFoundError("no such model: %s" % path)
         m = akida.Model(path)
-        # AKD1000 (v1) has no multipass; the default AllNps map can force a
-        # fragile multi-pass path. Minimal keeps it to one hardware sequence.
-        m.map(self.device, hw_only=True, mode=akida.MapMode.Minimal)
+        # AllNps spreads the model across all neural processors on the device.
+        m.map(self.device, hw_only=True, mode=akida.MapMode.AllNps)
         self.model = m
         self.stem = _stem(path)
         self.ishape = tuple(int(d) for d in m.input_shape)
