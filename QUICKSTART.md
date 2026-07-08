@@ -77,18 +77,23 @@ docker run -d --privileged --network symcluster1 \
     -v /opt/symphony/shared:/shared \
     symphonyce:7.3.4
 
-# one compute container per Akida chip — here 5, on /dev/akida0–4 (HTTP on 8790–8794).
-# Each chip is passed in as the container's /dev/akida0. --privileged IS required
-# here too, even though only --device is strictly needed for chip access: Symphony's
-# PEM needs elevated privileges to manage the service instance's container/cgroup
+# One compute container per Akida chip — DETECTED, not hardcoded, so the same
+# block works whether the box has 1, 2, 5, or 8 chips. Each host /dev/akida<i>
+# is passed into its container as /dev/akida0 and published on host port 8790+i
+# (compute-0 -> 8790, compute-1 -> 8791, …). --privileged IS required here too,
+# even though only --device is strictly needed for chip access: Symphony's PEM
+# needs elevated privileges to manage the service instance's container/cgroup
 # priority, and without it every node fails to start and the dashboard shows all
 # nodes down (see Troubleshooting).
-# Adjust the list to your chip count, e.g. `for n in 0 1 2` for three.
-for n in 0 1 2 3 4; do
+mapfile -t AKIDA_DEVS < <(ls -d /dev/akida* 2>/dev/null | sort -V)
+N=${#AKIDA_DEVS[@]}
+echo "Detected $N Akida chip(s): ${AKIDA_DEVS[*]:-none}"
+
+for i in "${!AKIDA_DEVS[@]}"; do
   docker run -d --privileged --network symcluster1 \
-    --hostname symphony-compute-$n.local --name symphony-compute-$n \
-    --network-alias symphony-compute-$n.local \
-    -p 879$n:8790 --device=/dev/akida$n:/dev/akida0 \
+    --hostname symphony-compute-$i.local --name symphony-compute-$i \
+    --network-alias symphony-compute-$i.local \
+    -p $((8790+i)):8790 --device=${AKIDA_DEVS[$i]}:/dev/akida0 \
     -e HOST_ROLE=COMPUTE \
     -v /opt/symphony/shared:/shared \
     symphonyce:7.3.4
@@ -112,78 +117,78 @@ cp .models/*.fbz .models/*_meta.json /opt/symphony/shared/models/
 <summary>No Akida hardware? Run on the software backend instead</summary>
 
 Drop the `--device=…` flag (keep `--privileged`); inference runs on the Akida
-**software backend** instead of real silicon. Chip count no longer applies —
-pick any number of nodes:
+**software backend** instead of real silicon. There are no `/dev/akida*` to
+detect here, so pick a node count yourself (`COUNT` below) — it drives both the
+container loop and the dashboard:
 
 ```bash
-for n in 0 1 2; do
+COUNT=3
+for i in $(seq 0 $((COUNT-1))); do
   docker run -d --privileged --network symcluster1 \
-    --hostname symphony-compute-$n.local --name symphony-compute-$n \
-    --network-alias symphony-compute-$n.local \
-    -p 879$n:8790 -e HOST_ROLE=COMPUTE \
+    --hostname symphony-compute-$i.local --name symphony-compute-$i \
+    --network-alias symphony-compute-$i.local \
+    -p $((8790+i)):8790 -e HOST_ROLE=COMPUTE \
     -v /opt/symphony/shared:/shared \
     symphonyce:7.3.4
 done
 ```
+Then launch the dashboard (Step 3) with `AKIDA_NODE_COUNT=$COUNT`, and in the
+"spread across every chip" step below use `N=$COUNT` instead of the `/dev/akida*`
+count.
 </details>
 
-<details>
-<summary>Only one node serving, and disable/enable doesn't spread it? Fix the distribution policy</summary>
+### Spread the service across every chip
 
-The service is a single "preStart" instance that Symphony schedules onto
-whichever host is available first. The image's resource plan ships with **no
-`DistributeBy` value set** on the `ComputeHosts` distribution tree, so instead
-of spreading 1-per-host, Symphony packs every instance onto that same first
-host — the documented disable/enable cycle alone does **not** fix this (we
-verified: it stacks all instances on one node even after several retries).
-Patch the policy once, then disable/enable:
+Right after first boot the Akida service comes up on **one** compute node only —
+it auto-registers before the others finish joining and, being a "preStart"
+instance, doesn't rebalance on its own. Two shipped defaults also cap the
+spread: the service profile hardcodes `numOfSlotsForPreloadedServices="3"` (so
+with 4+ chips only 3 ever get an instance), and the resource plan's
+`ComputeHosts` distribution policy ships **empty** (so Symphony stacks every
+instance on the first host instead of 1-per-chip).
+
+Fix both in one shot, **sized to your chip count** — the same command spreads
+onto 1, 2, 5, or 8 chips. Run it once the console is up and
+`docker exec symphony-master bash -lc 'source /opt/ibm/spectrumcomputing/profile.platform; egosh resource list'`
+shows every compute node `ok` (≈ first boot + a minute). `N` is just the
+`/dev/akida*` count, same as Step 2:
 
 ```bash
-docker exec symphony-master bash -lc '
+N=$(ls -d /dev/akida* 2>/dev/null | wc -l)   # chips = compute nodes
+docker exec -e N="$N" symphony-master bash -lc '
+  source /opt/ibm/spectrumcomputing/profile.platform
+  egosh user logon -u Admin -x Admin
+  echo Y | soamcontrol app disable AkidaGenericService; sleep 5
+  # 1) one service slot per chip (profile default caps at 3)
+  sed -i "s/numOfSlotsForPreloadedServices=\"[0-9]*\"/numOfSlotsForPreloadedServices=\"$N\"/" \
+    /opt/akida-service/AkidaGenericService.xml
+  soamreg /opt/akida-service/AkidaGenericService.xml -f
+  # 2) place 1-per-host instead of stacking on the first host
   sed -i "/<ResourceGroupName>ComputeHosts<\/ResourceGroupName>/,+2 s#<PolicyParameter ParameterName=.DistributeBy./>#<PolicyParameter ParameterName=\"DistributeBy\">EqualFreeSlot</PolicyParameter>#" \
     /shared/kernel/conf/ConsumerTrees.xml
-  source /opt/ibm/spectrumcomputing/profile.platform
-  egosh user logon -u Admin -x Admin
   egosh consumer applyresplan -f /shared/kernel/conf/ConsumerTrees.xml
-  echo Y | soamcontrol app disable AkidaGenericService; sleep 10
-  echo Y | soamcontrol app enable  AkidaGenericService'
-# every node's port (8790, 8791, … 8794) should now serve within ~30-60s
+  echo Y | soamcontrol app enable AkidaGenericService'
+# every chip's port (8790, 8791, …) should serve within ~30-60s
 ```
 
-If it's still stacked on one host afterwards, kill the extras and repeat the
-disable/enable:
-
-```bash
-for n in 0 1 2 3 4; do
-  docker exec symphony-compute-$n bash -lc \
-    'pkill -9 -f akida_worker.py; pkill -9 -f AkidaServiceContainer.py' 2>/dev/null
-done
-```
-The first node works out of the box without any of this. Full detail in
-[BRAINCHIP-DEMO.md](BRAINCHIP-DEMO.md#known-issues--expected-first-boot-behavior).
-</details>
+Single-node (just `8790`) works out of the box without any of this — you only
+need it to light up the rest of the fleet.
 
 <details>
-<summary>More than 3 Akida chips? Raise the preloaded-instance cap first</summary>
-
-The shipped service profile hardcodes `numOfSlotsForPreloadedServices="3"` —
-a leftover from the original 3-compute-node design. With 4+ compute nodes,
-only 3 will ever get a service instance, no matter how you distribute it.
-Bump the cap (adjust `"5"` to your chip count) **before** the distribution-policy
-fix above:
+<summary>Still stacked on one host afterwards? Kill leftover workers and retry</summary>
 
 ```bash
+docker ps -a --filter name=symphony-compute --format '{{.Names}}' | while read c; do
+  docker exec "$c" bash -lc 'pkill -9 -f akida_worker.py; pkill -9 -f AkidaServiceContainer.py' 2>/dev/null
+done
 docker exec symphony-master bash -lc '
-  sed -i "s/numOfSlotsForPreloadedServices=\"3\"/numOfSlotsForPreloadedServices=\"5\"/" \
-    /opt/akida-service/AkidaGenericService.xml
   source /opt/ibm/spectrumcomputing/profile.platform
   egosh user logon -u Admin -x Admin
-  echo Y | soamcontrol app disable AkidaGenericService
-  soamreg /opt/akida-service/AkidaGenericService.xml -f
-  echo Y | soamcontrol app enable AkidaGenericService'
+  echo Y | soamcontrol app disable AkidaGenericService; sleep 10
+  echo Y | soamcontrol app enable  AkidaGenericService'
 ```
-Then apply the `DistributeBy` fix above to actually spread those 5 instances
-1-per-host instead of stacking them.
+Full detail in
+[BRAINCHIP-DEMO.md](BRAINCHIP-DEMO.md#known-issues--expected-first-boot-behavior).
 </details>
 
 ---
@@ -193,7 +198,7 @@ Then apply the `DistributeBy` fix above to actually spread those 5 instances
 | Open this | URL | Login |
 |---|---|---|
 | **Dashboard** (start here) | `http://localhost:5001` | — |
-| Akida service (per node) | `http://localhost:8790` … `8794` (one per chip) | — |
+| Akida service (per node) | `http://localhost:8790`, `8791`, … (one per chip: `8790 + index`) | — |
 | Management console (PMC) | `https://localhost:8443/platform` | `Admin` / `Admin` |
 
 > The console's cert is self-signed, so your browser will show a security
@@ -213,13 +218,18 @@ root, next to `akida_client.py` (running `web/app.py` fails to import it):
 
 ```bash
 python3 -m venv .venv && ./.venv/bin/pip install flask
-AKIDA_NODES="http://localhost:8790,http://localhost:8791,http://localhost:8792,http://localhost:8793,http://localhost:8794" \
+# AKIDA_NODE_COUNT = number of chips; the dashboard builds one URL per node
+# (localhost:8790, 8791, …) so this matches whatever Step 2 launched.
+AKIDA_NODE_COUNT=$(ls -d /dev/akida* 2>/dev/null | wc -l) \
 FLASK_PORT=5001 ./.venv/bin/python app.py
 # then open http://localhost:5001
 ```
 
-`AKIDA_NODES` is one URL per compute node — trim or extend the list to match how
-many you launched; the dashboard auto-detects which are live.
+`AKIDA_NODE_COUNT` sizes the fleet to your chips automatically (ports start at
+`AKIDA_PORT_BASE`, default `8790`); the dashboard then probes each and shows
+which are live. Need non-default ports or hosts? Set `AKIDA_NODES` to an explicit
+comma-separated URL list instead — it overrides the count. (Software-backend
+run with no `/dev/akida*`? Pass the count you chose, e.g. `AKIDA_NODE_COUNT=3`.)
 
 **What you should see:** the **Fleet** panel lists your live compute nodes as
 green dots with hostname and akida SDK version (red/"down" for any that
@@ -322,12 +332,13 @@ If that prints a match, re-launch the compute containers with `--privileged`
 added (as in [Step 2](#step-2--start-the-cluster) above):
 
 ```bash
-for n in 0 1 2 3 4; do docker rm -f symphony-compute-$n 2>/dev/null; done
-for n in 0 1 2 3 4; do
+docker ps -a --filter name=symphony-compute --format '{{.Names}}' | xargs -r docker rm -f
+mapfile -t AKIDA_DEVS < <(ls -d /dev/akida* 2>/dev/null | sort -V)
+for i in "${!AKIDA_DEVS[@]}"; do
   docker run -d --privileged --network symcluster1 \
-    --hostname symphony-compute-$n.local --name symphony-compute-$n \
-    --network-alias symphony-compute-$n.local \
-    -p 879$n:8790 --device=/dev/akida$n:/dev/akida0 \
+    --hostname symphony-compute-$i.local --name symphony-compute-$i \
+    --network-alias symphony-compute-$i.local \
+    -p $((8790+i)):8790 --device=${AKIDA_DEVS[$i]}:/dev/akida0 \
     -e HOST_ROLE=COMPUTE \
     -v /opt/symphony/shared:/shared \
     symphonyce:7.3.4
@@ -353,7 +364,7 @@ To recreate it clean instead, remove the old cluster first (the network won't
 delete while containers are attached), then re-run the create:
 
 ```bash
-for c in symphony-compute-4 symphony-compute-3 symphony-compute-2 symphony-compute-1 symphony-compute-0 symphony-master; do docker rm -f $c 2>/dev/null; done
+docker ps -a --filter name=symphony --format '{{.Names}}' | xargs -r docker rm -f
 docker network rm symcluster1
 docker network create --driver bridge --subnet 172.30.0.0/24 symcluster1
 ```
@@ -366,7 +377,7 @@ Same cause — containers from a previous run are still around. Remove them, the
 re-run the launch block from Step 2:
 
 ```bash
-for c in symphony-compute-4 symphony-compute-3 symphony-compute-2 symphony-compute-1 symphony-compute-0 symphony-master; do docker rm -f $c 2>/dev/null; done
+docker ps -a --filter name=symphony --format '{{.Names}}' | xargs -r docker rm -f
 ```
 </details>
 
@@ -381,7 +392,7 @@ no node serves. Confirm with `docker logs symphony-master | grep -i recovery`
 Fix: tear down, **wipe `/shared`**, and relaunch from scratch (the network can stay):
 
 ```bash
-for c in symphony-compute-4 symphony-compute-3 symphony-compute-2 symphony-compute-1 symphony-compute-0 symphony-master; do docker rm -f $c; done
+docker ps -a --filter name=symphony --format '{{.Names}}' | xargs -r docker rm -f
 sudo rm -rf /opt/symphony/shared
 sudo mkdir -p /opt/symphony/shared && sudo chown 1000:1000 /opt/symphony/shared
 ```
@@ -419,9 +430,8 @@ in [BRAINCHIP-DEMO.md](BRAINCHIP-DEMO.md#known-issues--expected-first-boot-behav
 <summary>Stop and remove everything</summary>
 
 ```bash
-for c in symphony-compute-4 symphony-compute-3 symphony-compute-2 symphony-compute-1 symphony-compute-0 symphony-master; do
-  docker rm -f $c
-done
+# removes the master + every compute container, whatever the chip count
+docker ps -a --filter name=symphony --format '{{.Names}}' | xargs -r docker rm -f
 docker network rm symcluster1
 # for a clean restart, also wipe /opt/symphony/shared before relaunching the master
 ```
