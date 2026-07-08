@@ -13,8 +13,11 @@ to the per-node HTTP endpoints (compute-1 -> :8791, -2 -> :8792,
 
 Run:
     pip install flask
-    AKIDA_NODES="http://localhost:8791,http://localhost:8792,http://localhost:8793" \
-        python web/app.py        # serves http://localhost:5001
+    # one URL per chip, auto-built from the chip count (ports 8790, 8791, …):
+    AKIDA_NODE_COUNT=$(ls -d /dev/akida* 2>/dev/null | wc -l) python app.py
+    # …or list the node URLs explicitly (wins over AKIDA_NODE_COUNT):
+    AKIDA_NODES="http://localhost:8790,http://localhost:8791" python app.py
+    # serves http://localhost:5001
 """
 import json
 import os
@@ -26,10 +29,34 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 from akida_client import AkidaServiceClient, AkidaServiceError  # noqa: E402
 
 SAMPLES_DIR = os.path.join(HERE, "samples")
-NODES = [u.strip() for u in os.environ.get(
-    "AKIDA_NODES",
-    "http://localhost:8791,http://localhost:8792,http://localhost:8793"
-).split(",") if u.strip()]
+
+
+def _discover_nodes():
+    """Build the per-node URL list, sized to however many Akida chips exist.
+
+    Resolution order (first match wins):
+      1. AKIDA_NODES        — explicit comma-separated URLs (full control).
+      2. AKIDA_NODE_COUNT   — one URL per chip on AKIDA_PORT_BASE, AKIDA_PORT_BASE+1, …
+                              (default base 8790, matching the compute containers,
+                              which publish host port 8790+chip_index). This is the
+                              dynamic path: pass the count of /dev/akida* devices and
+                              the same command works for 1, 2, 5, or 8 chips.
+      3. fallback           — three nodes on 8790-8792, for a quick default.
+
+    The dashboard probes each node and shows up/down, so an over-count just adds
+    "down" rows rather than breaking anything.
+    """
+    explicit = os.environ.get("AKIDA_NODES")
+    if explicit is not None:
+        return [u.strip() for u in explicit.split(",") if u.strip()]
+    count = os.environ.get("AKIDA_NODE_COUNT")
+    base = int(os.environ.get("AKIDA_PORT_BASE", "8790"))
+    if count:
+        return ["http://localhost:%d" % (base + i) for i in range(int(count))]
+    return ["http://localhost:%d" % (base + i) for i in range(3)]
+
+
+NODES = _discover_nodes()
 SHARED_MODELS = os.environ.get("AKIDA_SHARED_MODELS", "/opt/symphony/shared/models")
 
 app = Flask(__name__)
