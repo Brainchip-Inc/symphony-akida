@@ -21,7 +21,25 @@
 
     <SOAM version="7.3.2">
         <SSM resReq="" workDir="${EGO_SHARED_TOP}/soam/work"
-             startUpTimeout="60" shutDownTimeout="300"/>
+             startUpTimeout="60" shutDownTimeout="300">
+            <boundaryManagerConfig>
+                <boundaries>
+                    <boundary elementName="AvailableMemory">
+                        <event name="BEV_PROACTIVE" value="50"/>
+                        <event name="BEV_SEVERE"    value="40"/>
+                        <event name="BEV_CRITICAL"  value="0"/>
+                        <event name="BEV_HALT"      value="0"/>
+                    </boundary>
+                    <boundary elementName="ProcessMemory">
+                        <param name="MaxSizeReference" value="8388608"/>
+                        <event name="BEV_PROACTIVE" value="0"/>
+                        <event name="BEV_SEVERE"    value="0"/>
+                        <event name="BEV_CRITICAL"  value="0"/>
+                        <event name="BEV_HALT"      value="0"/>
+                    </boundary>
+                </boundaries>
+            </boundaryManagerConfig>
+        </SSM>
         <SIM startUpTimeout="120"
              blockHostOnTimeout="false"
              blockHostOnVersionMismatch="false"/>
