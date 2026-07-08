@@ -87,7 +87,9 @@ class Chip:
         if not os.path.isfile(path):
             raise FileNotFoundError("no such model: %s" % path)
         m = akida.Model(path)
-        m.map(self.device, hw_only=True)          # runs fully on-chip or raises
+        # AKD1000 (v1) has no multipass; the default AllNps map can force a
+        # fragile multi-pass path. Minimal keeps it to one hardware sequence.
+        m.map(self.device, hw_only=True, mode=akida.MapMode.Minimal)
         self.model = m
         self.stem = _stem(path)
         self.ishape = tuple(int(d) for d in m.input_shape)
@@ -118,6 +120,12 @@ class Chip:
 
 
 def main():
+    # Strict readiness: acquire the device (hard-fail exits before READY), then
+    # map the default model on-chip. READY is emitted only after a successful
+    # hw_only map -- no device or a failed map means no READY, so the SOAM
+    # instance never serves and the node is not used. Each compute node is
+    # pinned to a single chip (see the entrypoint), so this enumerate+map is
+    # fast and does not trip the SIM's create deadline.
     chip = Chip(select_device())
     default = os.environ.get("AKIDA_DEFAULT_MODEL", "").strip()
     if default:

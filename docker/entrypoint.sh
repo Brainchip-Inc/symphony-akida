@@ -38,12 +38,25 @@ if [ -n "${EGO_DEFINE_NCPUS:-}" ]; then
     log "EGO_DEFINE_NCPUS=$EGO_DEFINE_NCPUS"
 fi
 
-# Persist per-node settings for the SOAM wrapper. SOAM launches the service
-# instance with a clean env, so the worker cannot read the container env
-# directly; the wrapper sources this file. AKIDA_DEVICE_INDEX selects the chip.
+# Pin this node to exactly one Akida chip. Under --privileged the container's
+# /dev (a private tmpfs) exposes ALL host chips, and every akida process would
+# enumerate + DMA-configure all of them -- with one worker per node that causes
+# DMA contention and slow/failed init. akida enumerates /dev/akida0.. contiguously,
+# so we drop all nodes and recreate /dev/akida0 pointing at this node's assigned
+# chip. The host's /dev is a separate tmpfs and is not affected.
+if [ -n "${AKIDA_CHIP:-}" ] && [ -e "/dev/akida${AKIDA_CHIP}" ]; then
+    maj=$((16#$(stat -c '%t' "/dev/akida${AKIDA_CHIP}")))
+    min=$((16#$(stat -c '%T' "/dev/akida${AKIDA_CHIP}")))
+    rm -f /dev/akida[0-9]*
+    mknod /dev/akida0 c "$maj" "$min" && chmod 666 /dev/akida0
+    log "pinned to Akida chip ${AKIDA_CHIP} (exposed as /dev/akida0)"
+fi
+
+# Persist per-node settings for the SOAM wrapper: SOAM launches the instance
+# with a clean env, so the worker reads this file (sourced by the wrapper).
+# After the remap above, the assigned chip is the only device -> index 0.
 if [ -d "$akida_dir" ]; then
-    echo "export AKIDA_DEVICE_INDEX=${AKIDA_DEVICE_INDEX:-0}" > "$akida_dir/node.env"
-    log "node.env: AKIDA_DEVICE_INDEX=${AKIDA_DEVICE_INDEX:-0}"
+    echo "export AKIDA_DEVICE_INDEX=0" > "$akida_dir/node.env"
 fi
 
 # SSH access (optional): pass -e SSH_PUBLIC_KEY to enable key login as egoadmin.

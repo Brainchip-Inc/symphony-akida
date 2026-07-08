@@ -11,8 +11,9 @@ __pycache__/
 # Cluster runtime: repo-local shared dir + generated sample sets
 .cluster/
 
-# Local plans (never shipped)
+# Local plans + tool state (never shipped)
 .plans/
+.claude/
 
 # OS / editor
 .DS_Store
