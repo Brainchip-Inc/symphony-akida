@@ -19,5 +19,9 @@ RUN chmod +x /entrypoint.sh
 COPY src/apps/batch-inference/service/ /opt/akida-service/
 RUN chmod +x /opt/akida-service/*.sh && /opt/akida-service/build_package.sh
 
+# The SOAM batch client runs inside the master (needs the 3.6 soamapi binding).
+COPY src/apps/batch-inference/client/ /opt/akida-client/
+RUN chmod +x /opt/akida-client/*.sh
+
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["--hold"]
