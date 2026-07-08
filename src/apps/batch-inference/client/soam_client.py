@@ -14,6 +14,7 @@ import json
 import os
 import random
 import sys
+import threading
 import time
 from collections import Counter, defaultdict
 
@@ -41,12 +42,17 @@ def main():
     ap.add_argument("--model", default="kws_keyword_spotting")
     ap.add_argument("--count", type=int, default=500)
     ap.add_argument("--seed", type=int, default=1234)
+    ap.add_argument("--max-services", type=int, default=0,
+                    help="cap service instances used (0=unlimited); set to the chip count so "
+                         "one session uses one instance per chip and does not over-provision")
+    ap.add_argument("--workers", type=int, default=8,
+                    help="concurrent submit threads; a single thread cannot feed a fast fleet, "
+                         "so several keep a backlog and every chip stays saturated")
     ap.add_argument("--json", action="store_true", help="emit one JSON result line (for the dashboard)")
     args = ap.parse_args()
 
     n, shape = input_length(args.model)
     random.seed(args.seed)
-    samples = [[random.randint(0, 255) for _ in range(n)] for _ in range(args.count)]
     print("[client] model=%s input_shape=%s tasks=%d -> %s"
           % (args.model, shape, args.count, APP),
           file=(sys.stderr if args.json else sys.stdout))
@@ -57,15 +63,38 @@ def main():
     attrs.set_session_name("akida-batch")
     attrs.set_session_type("UnrecoverableNoHistoricalData")
     attrs.set_session_flags(soamapi.SessionFlags.RECEIVE_SYNC)
+    if args.max_services > 0:
+        attrs.set_max_services(args.max_services)
     session = conn.create_session(attrs)
 
+    # Pre-build a pool of task payloads once (random uint8 of the model's shape),
+    # then cycle through them. Cheap per-task submit + several sender threads let
+    # the client build a backlog and keep every chip saturated (a single thread
+    # cannot feed a fast fleet). Memory stays bounded to the pool.
+    pool_size = min(args.count, 256)
+    payloads = [json.dumps({"model": args.model,
+                            "input": [random.randint(0, 255) for _ in range(n)]})
+                for _ in range(pool_size)]
+
+    def submit(lo, hi):
+        for i in range(lo, hi):
+            tsa = soamapi.TaskSubmissionAttributes()
+            msg = soamapi.DefaultTextMessage()
+            msg.set_text(payloads[i % pool_size])
+            tsa.set_task_input(msg)
+            session.send_task_input(tsa)
+
     t0 = time.time()
-    for s in samples:
-        tsa = soamapi.TaskSubmissionAttributes()
-        msg = soamapi.DefaultTextMessage()
-        msg.set_text(json.dumps({"model": args.model, "input": s}))
-        tsa.set_task_input(msg)
-        session.send_task_input(tsa)
+    workers = max(1, args.workers)
+    step = (args.count + workers - 1) // workers
+    senders = []
+    for w in range(workers):
+        lo, hi = w * step, min(args.count, (w + 1) * step)
+        if lo >= hi:
+            break
+        th = threading.Thread(target=submit, args=(lo, hi))
+        th.start()
+        senders.append(th)
 
     per_host = Counter()
     per_host_us = defaultdict(float)
@@ -88,6 +117,8 @@ def main():
             per_host_us[r["host"]] += r.get("inference_us", 0)
             classes[r.get("cls_name", "?")] += 1
     wall = time.time() - t0
+    for th in senders:
+        th.join()
 
     session.close()
     conn.close()
