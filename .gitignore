@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Docker image tarballs (image is pulled/pushed, not committed)
+*.tar
+*.tar.gz
+
+# Cluster runtime: repo-local shared dir + generated sample sets
+.cluster/
+
+# Local plans (never shipped)
+.plans/
+
+# OS / editor
+.DS_Store

@@ -1,0 +1,14 @@
+[project]
+name = "symphony-akida-demo"
+version = "0.1.0"
+description = "IBM Spectrum Symphony CE + BrainChip Akida on-chip fleet inference demo"
+requires-python = ">=3.10"
+# Host-side tooling only (dashboard, sample generator, orchestration).
+# The in-container runtime (python 3.6 + python 3.12 + akida) is fixed by the image.
+dependencies = [
+    "flask>=3.0",
+    "numpy>=1.26",
+]
+
+[tool.uv]
+package = false
