@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import random
+import sys
 import time
 from collections import Counter, defaultdict
 
@@ -40,13 +41,15 @@ def main():
     ap.add_argument("--model", default="kws_keyword_spotting")
     ap.add_argument("--count", type=int, default=500)
     ap.add_argument("--seed", type=int, default=1234)
+    ap.add_argument("--json", action="store_true", help="emit one JSON result line (for the dashboard)")
     args = ap.parse_args()
 
     n, shape = input_length(args.model)
     random.seed(args.seed)
     samples = [[random.randint(0, 255) for _ in range(n)] for _ in range(args.count)]
     print("[client] model=%s input_shape=%s tasks=%d -> %s"
-          % (args.model, shape, args.count, APP))
+          % (args.model, shape, args.count, APP),
+          file=(sys.stderr if args.json else sys.stdout))
 
     soamapi.initialize()
     conn = soamapi.connect(APP, soamapi.DefaultSecurityCallback("Admin", "Admin"))
@@ -91,23 +94,37 @@ def main():
     soamapi.uninitialize()
 
     rate = (args.count / wall) if wall else 0.0
+    ok = sum(per_host.values())
+    avg_ms = (sum(per_host_us.values()) / ok / 1000.0) if ok else 0.0
+    one_chip = (1000.0 / avg_ms) if avg_ms else 0.0
+    result = {
+        "model": args.model, "count": args.count,
+        "done": args.count - errors, "errors": errors,
+        "chips": len(per_host), "wall_s": round(wall, 3),
+        "throughput": round(rate, 1), "avg_ms": round(avg_ms, 3),
+        "one_chip_rate": round(one_chip, 1),
+        "speedup": round(rate / one_chip, 2) if one_chip else 0.0,
+        "per_host": {h: {"tasks": per_host[h],
+                         "avg_ms": round(per_host_us[h] / per_host[h] / 1000.0, 3)}
+                     for h in per_host},
+        "classes": dict(classes),
+    }
+    if args.json:
+        print(json.dumps(result))
+        return
+
     print("\n=== fan-out across the Akida fleet ===")
-    print("chips used:   %d" % len(per_host))
-    print("tasks:        %d done, %d error" % (args.count - errors, errors))
+    print("chips used:   %d" % result["chips"])
+    print("tasks:        %d done, %d error" % (result["done"], errors))
     print("wall time:    %.2f s" % wall)
     print("throughput:   %.1f inferences/sec" % rate)
     print("\nper-chip distribution:")
     for h in sorted(per_host):
-        c = per_host[h]
-        avg_ms = (per_host_us[h] / c / 1000.0) if c else 0.0
-        print("  %-26s %6d tasks   avg on-chip %.2f ms" % (h, c, avg_ms))
-    if per_host:
-        ok = sum(per_host.values())
-        avg_ms = (sum(per_host_us.values()) / ok / 1000.0) if ok else 0.0
-        one_chip = (1000.0 / avg_ms) if avg_ms else 0.0
-        print("\navg on-chip latency: %.2f ms  ->  one chip sustains ~%.0f inf/s" % (avg_ms, one_chip))
-        print("fleet of %d chips:    %.0f inf/s  (~%.1fx a single chip)"
-              % (len(per_host), rate, (rate / one_chip) if one_chip else 0.0))
+        print("  %-26s %6d tasks   avg on-chip %.2f ms"
+              % (h, per_host[h], result["per_host"][h]["avg_ms"]))
+    print("\navg on-chip latency: %.2f ms  ->  one chip sustains ~%.0f inf/s" % (avg_ms, one_chip))
+    print("fleet of %d chips:    %.0f inf/s  (~%.1fx a single chip)"
+          % (len(per_host), rate, result["speedup"]))
     print("\nclass histogram: %s" % dict(classes))
 
 
