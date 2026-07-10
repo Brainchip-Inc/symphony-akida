@@ -13,15 +13,24 @@ RUN rm -rf /opt/akida-service
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Our SOAM service (python3.6 ServiceContainer + python3.12 on-chip worker +
-# wrapper + profile) and a prebuilt deploy package for the entrypoint to
-# register on the master's first boot.
+# Shared on-chip core (akida_chip.py) + model allowlist, imported by BOTH apps'
+# workers via PYTHONPATH=/opt/akida-common. Single source, no duplication.
+COPY src/common/ /opt/akida-common/
+
+# App 1 (batch-inference) SOAM service: python3.6 ServiceContainer + python3.12
+# on-chip worker + wrapper + profile, and a prebuilt deploy package the entrypoint
+# registers on the master's first boot.
 COPY src/apps/batch-inference/service/ /opt/akida-service/
 RUN chmod +x /opt/akida-service/*.sh && /opt/akida-service/build_package.sh
 
-# The SOAM batch client runs inside the master (needs the 3.6 soamapi binding).
+# App 1 SOAM batch client runs inside the master (needs the 3.6 soamapi binding).
 COPY src/apps/batch-inference/client/ /opt/akida-client/
 RUN chmod +x /opt/akida-client/*.sh
+
+# App 2 (serial-http-round-robin) per-node HTTP inference server (python3.12). The
+# entrypoint starts it on each compute when START_HTTP=1; it reuses /opt/akida-common.
+COPY src/apps/serial-http-round-robin/service/ /opt/akida-http/
+RUN chmod +x /opt/akida-http/*.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["--hold"]
