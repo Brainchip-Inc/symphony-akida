@@ -1,7 +1,7 @@
 #!/bin/bash
 # Run the SOAM batch client inside the master container. Sets up the Python 3.6
 # soamapi binding on the loader/module path, then runs soam_client.py.
-#   docker exec symphony-master /opt/akida-client/run_client.sh --model kws_keyword_spotting --count 500
+#   docker exec symphony-master /opt/akida-client/run_client.sh --model kws_keyword_spotting_sparse --count 500
 EGO_TOP=/opt/ibm/spectrumcomputing
 SOAM_LIB="$EGO_TOP/soam/7.3.2/linux-x86_64/lib64"
 source "$EGO_TOP/profile.platform" >/dev/null 2>&1

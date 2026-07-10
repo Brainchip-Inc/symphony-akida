@@ -82,7 +82,7 @@
                 subDirectoryPattern="AkidaGenericService/%sessionId%"
                 workDir="${SOAM_HOME}/work">
                 <env name="AKIDA_MODELS_DIR">/shared/models</env>
-                <env name="AKIDA_DEFAULT_MODEL">kws_keyword_spotting</env>
+                <env name="AKIDA_DEFAULT_MODEL">kws_keyword_spotting_sparse</env>
             </osType>
         </osTypes>
         <Control>

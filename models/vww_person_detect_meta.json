@@ -1,5 +1,6 @@
 {
   "model_name": "vww_person_detect",
+  "map_mode": "AllNps",
   "input_shape": [
     96,
     96,
