@@ -172,3 +172,26 @@ class Chip:
         return {"cls": cls,
                 "cls_name": self.classes[cls] if cls < len(self.classes) else str(cls),
                 "inference_us": us, "host": HOST, "device": self.desc, "model": self.stem}
+
+    def forward_raw(self, arr):
+        """Like infer(), but return the RAW output tensor instead of an argmax class.
+
+        Detectors (e.g. yolo_akidanet_voc) have no single "class" -- the meaningful result
+        is the full output grid, decoded downstream. The image-shard-inference app's stitch
+        stage needs these raw potentials, so this returns them flat (C-order) plus the
+        per-sample output shape. inputs/timing/identity fields mirror infer().
+        """
+        if self.model is None:
+            raise RuntimeError("no model mapped")
+        arr = np.asarray(arr, dtype=np.uint8).reshape(-1)
+        if arr.size != self.n:
+            raise ValueError("input has %d values, model expects %d %s"
+                             % (arr.size, self.n, list(self.ishape)))
+        x = arr.reshape((1,) + tuple(self.ishape))
+        t0 = time.perf_counter()
+        y = self.model.forward(x)
+        us = int((time.perf_counter() - t0) * 1e6)
+        out = np.asarray(y)
+        oshape = [int(d) for d in out.shape[1:]] if out.ndim > 1 else [int(out.size)]
+        return {"output": out.reshape(-1).astype(int).tolist(), "output_shape": oshape,
+                "inference_us": us, "host": HOST, "device": self.desc, "model": self.stem}
