@@ -133,6 +133,17 @@ COMPUTE)
     source "$EGO_TOP/profile.platform" >/dev/null 2>&1
     log "starting EGO (as root)"
     egosh ego start
+
+    # serial-http-round-robin app: this node also runs a plain-HTTP Akida server that
+    # maps a model hw_only on its chip and answers the dashboard's round-robin /infer.
+    # (The batch-inference app leaves START_HTTP unset; its work goes through SOAM.)
+    # Run it as egoadmin (uid 1000, like the SOAM SIs) so its /shared logs stay
+    # egoadmin-owned and down.sh can wipe .cluster without host sudo. /dev/akida0 is
+    # chmod 666 above, so egoadmin can drive the chip.
+    if [ "${START_HTTP:-0}" = "1" ] && [ -x /opt/akida-http/run_http_server.sh ]; then
+        log "starting per-node HTTP inference server (serial-http-round-robin) on :${HTTP_PORT:-8790}"
+        su egoadmin -c "HTTP_PORT='${HTTP_PORT:-8790}' /opt/akida-http/run_http_server.sh" &
+    fi
     ;;
 *)
     log "HOST_ROLE=$role (unknown); dropping to shell"

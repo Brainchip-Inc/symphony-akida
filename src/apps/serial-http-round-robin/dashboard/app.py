@@ -1,20 +1,25 @@
-"""SymAkida control-plane GUI — runs natively on the laptop.
+"""SymAkida control-plane GUI (serial-http-round-robin app) -- runs on the laptop.
 
-A small Flask dashboard for the Akida model service running as SOAM SIs
-on the Symphony compute nodes. It does NOT run on the cluster; it talks
-to the per-node HTTP endpoints (compute-1 -> :8791, -2 -> :8792,
--3 -> :8793) to:
+This is the restored "before" dashboard: a small Flask control plane that talks to the
+per-node Akida HTTP inference servers (one per compute chip, published on host ports
+8790, 8791, ...) to:
 
-  * show fleet + current model status
-  * list available .fbz models in the shared models dir
+  * show fleet + per-node ON-CHIP vs SOFTWARE status
+  * list the KWS/VWW models available in the shared models dir
   * load / unload / hot-swap the model on every live node
-  * stage a local .fbz from the laptop into the cluster's shared dir
-  * run a bundled sample dataset as a workload fanned across the fleet
+  * stage a local .fbz into the cluster's shared models dir
+  * run a sample workload fanned across the fleet -- one HTTP /infer at a time,
+    ROUND-ROBIN across nodes (the deliberate contrast with the batch-inference app's
+    concurrent SOAM fan-out)
 
-Run:
-    pip install flask
-    AKIDA_NODES="http://localhost:8791,http://localhost:8792,http://localhost:8793" \
-        python web/app.py        # serves http://localhost:5001
+It differs from the archived original in three fixed behaviours: inference now genuinely
+maps on the AKD1000 (so the ON-CHIP badge is truthful), only KWS + VWW are shown, and the
+workload is fed from the real .npz samples (via prepare_samples.py's <model>.bin) instead
+of the old fat *.samples.json int-lists.
+
+Run (from the repo, deps already installed via uv):
+    AKIDA_NODE_COUNT=$(ls -d /dev/akida* 2>/dev/null | wc -l) \
+        uv run python src/apps/serial-http-round-robin/dashboard/app.py   # http://localhost:5001
 """
 import json
 import os
@@ -24,15 +29,40 @@ import time
 from flask import Flask, jsonify, render_template_string, request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, "..", "client"))
+REPO = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
+sys.path.insert(0, os.path.join(HERE, "..", "client"))     # akida_client (HTTP client)
+sys.path.insert(0, os.path.join(REPO, "src", "common"))    # shared KWS+VWW allowlist
 from akida_client import AkidaServiceClient, AkidaServiceError  # noqa: E402
+import models as allowlist  # noqa: E402
 
-SAMPLES_DIR = os.path.join(HERE, "..", "samples")
-NODES = [u.strip() for u in os.environ.get(
-    "AKIDA_NODES",
-    "http://localhost:8791,http://localhost:8792,http://localhost:8793"
-).split(",") if u.strip()]
-SHARED_MODELS = os.environ.get("AKIDA_SHARED_MODELS", "/opt/symphony/shared/models")
+# Prepared samples (<model>.bin + <model>.samples.json) that prepare_samples.py writes
+# from the .npz into the repo-local shared dir. Same artefacts the SOAM client consumes.
+SAMPLES_DIR = os.environ.get("AKIDA_SAMPLES_DIR",
+                             os.path.join(REPO, ".cluster", "shared", "samples"))
+SHARED_MODELS = os.environ.get("AKIDA_SHARED_MODELS",
+                               os.path.join(REPO, ".cluster", "shared", "models"))
+# Cap the serial workload so the round-robin demo completes promptly (the .npz sets hold
+# thousands of samples). Raise AKIDA_SAMPLE_LIMIT to run more.
+LIMIT = int(os.environ.get("AKIDA_SAMPLE_LIMIT", "200"))
+
+
+def _discover_nodes():
+    """Per-node URL list, sized to the chip count (matches up.sh's 8790+j publishing).
+
+    Resolution order: AKIDA_NODES (explicit CSV) -> AKIDA_NODE_COUNT (one URL per chip on
+    AKIDA_PORT_BASE+i, default base 8790) -> fallback three nodes on 8790-8792.
+    """
+    explicit = os.environ.get("AKIDA_NODES")
+    if explicit is not None:
+        return [u.strip() for u in explicit.split(",") if u.strip()]
+    count = os.environ.get("AKIDA_NODE_COUNT")
+    base = int(os.environ.get("AKIDA_PORT_BASE", "8790"))
+    if count:
+        return ["http://localhost:%d" % (base + i) for i in range(int(count))]
+    return ["http://localhost:%d" % (base + i) for i in range(3)]
+
+
+NODES = _discover_nodes()
 
 app = Flask(__name__)
 
@@ -68,7 +98,9 @@ def api_fleet():
 def api_models():
     for c in live_clients():
         try:
-            return jsonify(c.list_models())
+            m = c.list_models()
+            m["models"] = [x for x in m.get("models", []) if allowlist.is_shown(x.get("name", ""))]
+            return jsonify(m)
         except AkidaServiceError:
             continue
     return jsonify({"models": [], "current": None, "error": "no live node"})
@@ -76,16 +108,22 @@ def api_models():
 
 @app.get("/api/samples")
 def api_samples():
+    """List prepared .npz-derived datasets (KWS/VWW) with their offered sample count."""
     out = []
-    for f in sorted(os.listdir(SAMPLES_DIR)) if os.path.isdir(SAMPLES_DIR) else []:
-        if f.endswith(".samples.json"):
+    if os.path.isdir(SAMPLES_DIR):
+        for f in sorted(os.listdir(SAMPLES_DIR)):
+            if not f.endswith(".samples.json"):
+                continue
             try:
-                with open(os.path.join(SAMPLES_DIR, f)) as fh:
-                    d = json.load(fh)
-                out.append({"file": f, "model": d["model"],
-                            "n": len(d["samples"]), "input_shape": d["input_shape"]})
+                d = json.load(open(os.path.join(SAMPLES_DIR, f)))
             except Exception:
-                pass
+                continue
+            if not allowlist.is_shown(d.get("model", "")):
+                continue
+            total = int(d.get("count", 0))
+            out.append({"file": f, "model": d["model"],
+                        "n": min(total, LIMIT), "total": total,
+                        "input_shape": d.get("input_shape")})
     return jsonify({"datasets": out})
 
 
@@ -118,34 +156,47 @@ def api_stage():
     try:
         res = AkidaServiceClient(NODES[0], SHARED_MODELS).stage_local_fbz(path)
         return jsonify({"ok": True, **res})
-    except AkidaServiceError as e:
+    except (AkidaServiceError, IndexError) as e:
         return jsonify({"ok": False, "error": str(e)}), 400
 
 
 @app.post("/api/run_samples")
 def api_run_samples():
+    """Round-robin the .npz-derived samples across the live nodes, one /infer at a time."""
     fname = (request.json or {}).get("file")
-    path = os.path.join(SAMPLES_DIR, fname or "")
-    if not fname or not os.path.isfile(path):
-        return jsonify({"ok": False, "error": "unknown sample file"}), 400
-    with open(path) as fh:
-        ds = json.load(fh)
+    side_path = os.path.join(SAMPLES_DIR, fname or "")
+    if not fname or not os.path.isfile(side_path):
+        return jsonify({"ok": False, "error": "unknown sample set"}), 400
+    side = json.load(open(side_path))
+    model = side["model"]
+    per = int(side["per_sample_bytes"])
+    total = int(side["count"])
+    class_names = side.get("class_names") or []
+    bin_path = os.path.join(SAMPLES_DIR, model + ".bin")
+    if not os.path.isfile(bin_path):
+        return jsonify({"ok": False, "error": "no .bin for %s (run prepare_samples.py)" % model}), 400
+    n = min(total, LIMIT)
+    with open(bin_path, "rb") as fh:
+        blob = fh.read(n * per)
+
     nodes = live_clients()
     if not nodes:
         return jsonify({"ok": False, "error": "no live node"}), 503
-    # ensure the model is loaded on every live node
+    # ensure the model is mapped on every live node first
     load_errs = []
     for c in nodes:
         try:
-            c.load(ds["model"])
+            c.load(model)
         except AkidaServiceError as e:
             load_errs.append({"url": c.base_url, "error": str(e)})
+
     rows, hist = [], {}
     t0 = time.time()
-    for i, sample in enumerate(ds["samples"]):
-        c = nodes[i % len(nodes)]              # round-robin across the fleet
+    for i in range(n):
+        vals = list(blob[i * per:(i + 1) * per])   # raw bytes -> ints 0..255
+        c = nodes[i % len(nodes)]                   # round-robin across the fleet
         try:
-            r = c.infer(sample)
+            r = c.infer(vals)
             rows.append({"i": i, "node": r["host"], "cls": r["cls"],
                          "cls_name": r["cls_name"], "us": r["inference_us"],
                          "hardware": r.get("hardware"), "mode": r.get("mode"),
@@ -156,7 +207,7 @@ def api_run_samples():
     wall = time.time() - t0
     lat = [r["us"] for r in rows if "us" in r]
     return jsonify({
-        "ok": True, "model": ds["model"], "class_names": ds["class_names"],
+        "ok": True, "model": model, "class_names": class_names,
         "rows": rows, "histogram": hist,
         "nodes_used": len(nodes), "wall_s": round(wall, 3),
         "avg_us": round(sum(lat) / len(lat)) if lat else None,
@@ -224,6 +275,7 @@ PAGE = r"""<!doctype html><html><head><meta charset=utf-8>
 const $=s=>document.querySelector(s), api=(p,b)=>fetch(p,b?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}:{}).then(r=>r.json());
 function log(m){$('#log').textContent=('['+new Date().toLocaleTimeString()+'] '+m+'\n')+$('#log').textContent;}
 async function refresh(){
+  const dsSel=$('#ds').value;
   const f=await api('/api/fleet');
   $('#fleet').innerHTML=f.nodes.map(n=>{
     let badge='';
@@ -251,6 +303,7 @@ async function refresh(){
     <td class=mono>${x.size_bytes?(x.size_bytes/1024).toFixed(0)+'k':''}</td>
     <td><button onclick="load('${x.name}')">${x.name===cur?'Reload':'Load'}</button></td></tr>`).join('')||'<tr><td colspan=5 class=muted>no models staged</td></tr>';
   const s=await api('/api/samples'); $('#ds').innerHTML=(s.datasets||[]).map(d=>`<option value="${d.file}">${d.model} — ${d.n} samples (${d.input_shape.join('×')})</option>`).join('');
+  if(dsSel) $('#ds').value=dsSel;
 }
 async function load(n){log('load '+n+' on fleet…');const r=await api('/api/load',{name:n});log('load: '+r.results.map(x=>x.url.replace('http://','')+(x.ok?' ✓':' ✗ '+x.error)).join('  '));refresh();}
 async function unload(){log('unload all…');await api('/api/unload',{});refresh();}

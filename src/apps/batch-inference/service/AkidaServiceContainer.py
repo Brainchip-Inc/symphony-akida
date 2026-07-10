@@ -85,7 +85,10 @@ class AkidaServiceContainer(soamapi.ServiceContainer):
         py = os.environ["AKIDA_PYTHON"]
         worker = os.environ["AKIDA_WORKER_PY"]
         env = os.environ.copy()
-        env["PYTHONPATH"] = env["AKIDA_VENV_SITEPACKAGES"]
+        # akida venv (numpy + akida) AND the shared on-chip core (/opt/akida-common,
+        # where akida_chip.py lives) so the worker's `import akida_chip` resolves.
+        common = env.get("AKIDA_COMMON_DIR", "/opt/akida-common")
+        env["PYTHONPATH"] = env["AKIDA_VENV_SITEPACKAGES"] + os.pathsep + common
         if self._shm is not None:
             env["AKIDA_SHM_PATH"] = self._shm_path
             env["AKIDA_SHM_BYTES"] = str(self._shm_bytes)
