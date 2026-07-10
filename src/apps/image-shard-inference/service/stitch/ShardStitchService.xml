@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- ShardStitchService: CPU-only preStarted instances on the MANAGEMENT host. Each task reads
+     the 5 per-segment output grids for one image off the shared pipeline bus, decodes + NMS-
+     merges them into one detection set for the full 448 image. resReq="select(mg)" keeps these
+     off the Akida compute chips (they need no hardware). -->
+<Profile xmlns="http://www.platform.com/Symphony/Profile/Application"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         version="7.3.2">
+
+    <Consumer applicationName="ShardStitchService"
+              consumerId="/AkidaShard/Stitch"
+              preStartApplication="true"
+              numOfSlotsForPreloadedServices="1"
+              resourceGroupName="ManagementHosts"
+              resReq="select(mg)"
+              taskHighWaterMark="1.0"
+              taskLowWaterMark="0.0"/>
+
+    <SOAM version="7.3.2">
+        <SSM resReq="" workDir="${EGO_SHARED_TOP}/soam/work"
+             startUpTimeout="60" shutDownTimeout="300">
+            <boundaryManagerConfig>
+                <boundaries>
+                    <boundary elementName="AvailableMemory">
+                        <event name="BEV_PROACTIVE" value="50"/>
+                        <event name="BEV_SEVERE"    value="40"/>
+                        <event name="BEV_CRITICAL"  value="0"/>
+                        <event name="BEV_HALT"      value="0"/>
+                    </boundary>
+                </boundaries>
+            </boundaryManagerConfig>
+        </SSM>
+        <SIM startUpTimeout="120"
+             blockHostOnTimeout="false"
+             blockHostOnVersionMismatch="false"/>
+        <DataHistory fileSwitchSize="100" lastingPeriod="96"/>
+        <PagingTasksInput  blockSize="4096"   diskSpace="4294967296"/>
+        <PagingTasksOutput blockSize="4096"   diskSpace="4294967296"/>
+        <PagingCommonData  blockSize="102400" diskSpace="8589934592"/>
+        <PagingCommonDataUpdates blockSize="102400" diskSpace="8589934592"/>
+    </SOAM>
+
+    <SessionTypes>
+        <Type name="UnrecoverableNoHistoricalData"
+              abortSessionIfTaskFail="false"
+              abortSessionIfClientDisconnect="true"
+              persistTaskHistory="none"
+              priority="1" recoverable="false"
+              sessionRetryLimit="3"
+              taskCleanupPeriod="100"
+              suspendGracePeriod="100"
+              taskRetryLimit="3"/>
+    </SessionTypes>
+
+    <Service name="ShardStitchService"
+             packageName="ShardStitchServicePackage.v1"
+             description="Shard pipeline: decode + NMS-merge 5 segment grids into one result (CPU)">
+        <osTypes>
+            <osType name="all"
+                startCmd="${SOAM_DEPLOY_DIR}/run_cpu_service.sh ${SOAM_DEPLOY_DIR}/StitchServiceContainer.py"
+                fileNamePattern="%sessionId%.%taskId%."
+                logDirectory="${SOAM_HOME}/work"
+                subDirectoryPattern="ShardStitchService/%sessionId%"
+                workDir="${SOAM_HOME}/work">
+                <env name="AKIDA_MODELS_DIR">/shared/models</env>
+                <env name="AKIDA_DEFAULT_MODEL">yolo_akidanet_voc</env>
+                <env name="AKIDA_PIPELINE_DIR">/shared/pipeline</env>
+            </osType>
+        </osTypes>
+        <Control>
+            <Method name="Register">
+                <Timeout duration="60" actionOnSI="restartService"/>
+                <Exit actionOnSI="restartService"/>
+            </Method>
+            <Method name="CreateService">
+                <Timeout duration="0" actionOnSI="restartService"/>
+                <Exit actionOnSI="restartService"/>
+                <Return controlCode="0" actionOnSI="keepAlive"/>
+                <Exception type="failure" controlCode="0" actionOnSI="restartService"/>
+                <Exception type="fatal"   controlCode="0" actionOnSI="restartService"/>
+            </Method>
+            <Method name="SessionEnter">
+                <Timeout duration="0" actionOnSI="restartService" actionOnWorkload="retry"/>
+                <Exit actionOnSI="restartService" actionOnWorkload="retry"/>
+                <Return controlCode="0" actionOnSI="keepAlive" actionOnWorkload="succeed"/>
+                <Exception type="failure" controlCode="0" actionOnSI="keepAlive" actionOnWorkload="retry"/>
+                <Exception type="fatal"   controlCode="0" actionOnSI="keepAlive" actionOnWorkload="fail"/>
+            </Method>
+            <Method name="Invoke">
+                <Timeout duration="0" actionOnSI="restartService" actionOnWorkload="retry"/>
+                <Exit actionOnSI="restartService" actionOnWorkload="retry"/>
+                <Return controlCode="0" actionOnSI="keepAlive" actionOnWorkload="succeed"/>
+                <Exception type="failure" controlCode="0" actionOnSI="keepAlive" actionOnWorkload="retry"/>
+                <Exception type="fatal"   controlCode="0" actionOnSI="keepAlive" actionOnWorkload="fail"/>
+            </Method>
+            <Method name="SessionLeave">
+                <Timeout duration="0" actionOnSI="restartService"/>
+                <Exit actionOnSI="restartService"/>
+                <Return controlCode="0" actionOnSI="keepAlive"/>
+                <Exception type="failure" controlCode="0" actionOnSI="keepAlive"/>
+                <Exception type="fatal"   controlCode="0" actionOnSI="keepAlive"/>
+            </Method>
+            <Method name="DestroyService">
+                <Timeout duration="15"/>
+            </Method>
+        </Control>
+    </Service>
+</Profile>

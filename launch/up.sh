@@ -17,8 +17,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="${1:-batch-inference}"
 case "$APP" in
-    batch-inference|serial-http-round-robin) ;;
-    *) echo "unknown app: '$APP' (use: batch-inference | serial-http-round-robin)" >&2; exit 1;;
+    batch-inference|serial-http-round-robin|image-shard-inference) ;;
+    *) echo "unknown app: '$APP' (use: batch-inference | serial-http-round-robin | image-shard-inference)" >&2; exit 1;;
 esac
 IMAGE="${IMAGE:-symphony-akida-demo:local}"
 NETWORK="${NETWORK:-symcluster}"
@@ -56,6 +56,7 @@ rm -rf "$HERE/.cluster"
 
 # --- seed models ------------------------------------------------------------
 mkdir -p "$SHARED/models"
+mkdir -p "$SHARED/pipeline"     # image-shard-inference: per-image segment/grid bus (/shared/pipeline)
 ls "$MODELS_SRC"/*.fbz >/dev/null 2>&1 || { echo "No models in $MODELS_SRC (*.fbz). Run 'git lfs pull' first." >&2; exit 1; }
 cp "$MODELS_SRC"/*.fbz "$MODELS_SRC"/*.json "$SHARED/models/" 2>/dev/null || true
 log "seeded models: $(ls "$SHARED/models" | grep '\.fbz$' | tr '\n' ' ')"
@@ -130,6 +131,31 @@ if [ "$APP" = "batch-inference" ]; then
     msh "soamview service AkidaGenericService 2>&1" | sed 's/^/    /'
     log "cluster up (batch-inference). Run the dashboard:"
     log "    uv run python src/apps/batch-inference/dashboard/app.py   # http://localhost:5001"
+elif [ "$APP" = "image-shard-inference" ]; then
+    log "registering + enabling the 3 shard services (segment=mgmt, inference=1/chip, stitch=mgmt)"
+    docker exec symphony-master /opt/akida-shard-service/register.sh "$NODES" 2>&1 | sed 's/^/    /'
+
+    log "waiting for $NODES inference instance(s) to map on-chip..."
+    for i in $(seq 1 40); do
+        n=$(grep -l "worker READY" "$SHARED"/soam/shard-inference/logs/si-*.log 2>/dev/null | wc -l) || true
+        [ "${n:-0}" -ge "$NODES" ] && break
+        sleep 3
+    done
+    log "waiting for the segment + stitch instance(s)..."
+    for i in $(seq 1 20); do
+        n=$(grep -l "ready;" "$SHARED"/soam/shard-cpu/logs/*.log 2>/dev/null | wc -l) || true
+        [ "${n:-0}" -ge 2 ] && break
+        sleep 3
+    done
+
+    log "service instance placement:"
+    for app in ShardSegmentService ShardInferenceService ShardStitchService; do
+        msh "soamview service $app 2>&1" | sed 's/^/    /'
+    done
+    log "cluster up (image-shard-inference). Run the dashboard:"
+    log "    uv run python src/apps/image-shard-inference/dashboard/app.py   # http://localhost:5001"
+    log "or drive it from the CLI:"
+    log "    docker exec symphony-master /opt/akida-shard-client/run_client.sh --count 200"
 else
     # serial-http-round-robin: each compute already started its HTTP server (START_HTTP=1).
     log "waiting for $NODES per-node HTTP server(s) to map on-chip..."

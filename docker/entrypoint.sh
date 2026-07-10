@@ -52,15 +52,17 @@ if [ -n "${AKIDA_CHIP:-}" ] && [ -e "/dev/akida${AKIDA_CHIP}" ]; then
     log "pinned to Akida chip ${AKIDA_CHIP} (exposed as /dev/akida0)"
 fi
 
-# Persist per-node settings for the SOAM wrapper: SOAM launches the instance
-# with a clean env, so the worker reads this file (sourced by the wrapper).
-# After the remap above, the assigned chip is the only device -> index 0.
-if [ -d "$akida_dir" ]; then
+# Persist per-node settings for the SOAM wrappers: SOAM launches the instance with a clean
+# env, so the worker reads this file (sourced by the wrapper). After the remap above, the
+# assigned chip is the only device -> index 0. Written into every baked on-chip service dir
+# (batch-inference and image-shard-inference), whichever app is registered this run.
+for d in "$akida_dir" /opt/akida-shard-service; do
+    [ -d "$d" ] || continue
     {
         echo "export AKIDA_DEVICE_INDEX=0"
         echo "export AKIDA_SHM_BYTES=${AKIDA_SHM_BYTES:-8388608}"
-    } > "$akida_dir/node.env"
-fi
+    } > "$d/node.env"
+done
 
 # SSH access (optional): pass -e SSH_PUBLIC_KEY to enable key login as egoadmin.
 setup_ssh() {
