@@ -1,27 +1,19 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.egg-info/
-.Python
-
-# Virtual environments
 .venv/
-venv/
-env/
-ENV/
+*.egg-info/
 
-# Docker image tarball — distributed via container registry, NOT git
-# (symphonyce-*.tar.gz is 6.8 GB and exceeds GitHub's file/LFS limits)
+# Docker image tarballs (image is pulled/pushed, not committed)
 *.tar
 *.tar.gz
 
-# IDE / editor
-.vscode/
-.idea/
-*.swp
-*.swo
+# Cluster runtime: repo-local shared dir + generated sample sets
+.cluster/
 
-# OS
+# Local plans + tool state (never shipped)
+.plans/
+.claude/
+
+# OS / editor
 .DS_Store
-Thumbs.db

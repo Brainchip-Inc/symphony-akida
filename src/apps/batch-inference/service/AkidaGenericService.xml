@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- AkidaGenericService: one preStarted service instance per compute host,
+     each pinned to one Akida chip and running inference on-chip. The workload
+     arrives as SOAM tasks (one per input) that the SSM fans out across every
+     instance. numOfSlotsForPreloadedServices is patched to the node count at
+     registration; combined with a per-host slot cap of 1 this places exactly
+     one instance per chip. resReq="select(!mg)" keeps instances off the
+     management host. -->
+<Profile xmlns="http://www.platform.com/Symphony/Profile/Application"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         version="7.3.2">
+
+    <Consumer applicationName="AkidaGenericService"
+              consumerId="/AkidaServices/GenericInference"
+              preStartApplication="true"
+              numOfSlotsForPreloadedServices="1"
+              resourceGroupName="ComputeHosts"
+              resReq="select(!mg)"
+              taskHighWaterMark="1.0"
+              taskLowWaterMark="0.0"/>
+
+    <SOAM version="7.3.2">
+        <SSM resReq="" workDir="${EGO_SHARED_TOP}/soam/work"
+             startUpTimeout="60" shutDownTimeout="300">
+            <boundaryManagerConfig>
+                <boundaries>
+                    <boundary elementName="AvailableMemory">
+                        <event name="BEV_PROACTIVE" value="50"/>
+                        <event name="BEV_SEVERE"    value="40"/>
+                        <event name="BEV_CRITICAL"  value="0"/>
+                        <event name="BEV_HALT"      value="0"/>
+                    </boundary>
+                    <boundary elementName="ProcessMemory">
+                        <param name="MaxSizeReference" value="8388608"/>
+                        <event name="BEV_PROACTIVE" value="0"/>
+                        <event name="BEV_SEVERE"    value="0"/>
+                        <event name="BEV_CRITICAL"  value="0"/>
+                        <event name="BEV_HALT"      value="0"/>
+                    </boundary>
+                </boundaries>
+            </boundaryManagerConfig>
+        </SSM>
+        <SIM startUpTimeout="120"
+             blockHostOnTimeout="false"
+             blockHostOnVersionMismatch="false"/>
+        <DataHistory fileSwitchSize="100" lastingPeriod="96"/>
+        <PagingTasksInput  blockSize="4096"   diskSpace="4294967296"/>
+        <PagingTasksOutput blockSize="4096"   diskSpace="4294967296"/>
+        <PagingCommonData  blockSize="102400" diskSpace="8589934592"/>
+        <PagingCommonDataUpdates blockSize="102400" diskSpace="8589934592"/>
+    </SOAM>
+
+    <SessionTypes>
+        <Type name="RecoverableNoHistoricalData"
+              abortSessionIfTaskFail="false"
+              abortSessionIfClientDisconnect="true"
+              persistTaskHistory="none"
+              priority="1" recoverable="true"
+              sessionRetryLimit="3"
+              taskCleanupPeriod="100"
+              suspendGracePeriod="100"
+              taskRetryLimit="3"/>
+        <Type name="UnrecoverableNoHistoricalData"
+              abortSessionIfTaskFail="false"
+              abortSessionIfClientDisconnect="true"
+              persistTaskHistory="none"
+              priority="1" recoverable="false"
+              sessionRetryLimit="3"
+              taskCleanupPeriod="100"
+              suspendGracePeriod="100"
+              taskRetryLimit="3"/>
+    </SessionTypes>
+
+    <Service name="AkidaGenericService"
+             packageName="AkidaGenericServicePackage.v1"
+             description="Akida on-chip inference (map hw_only, forward per task)">
+        <osTypes>
+            <osType name="all"
+                startCmd="${SOAM_DEPLOY_DIR}/run_akida_service.sh ${SOAM_DEPLOY_DIR}/AkidaServiceContainer.py"
+                fileNamePattern="%sessionId%.%taskId%."
+                logDirectory="${SOAM_HOME}/work"
+                subDirectoryPattern="AkidaGenericService/%sessionId%"
+                workDir="${SOAM_HOME}/work">
+                <env name="AKIDA_MODELS_DIR">/shared/models</env>
+                <env name="AKIDA_DEFAULT_MODEL">kws_keyword_spotting_sparse</env>
+            </osType>
+        </osTypes>
+        <Control>
+            <Method name="Register">
+                <Timeout duration="60" actionOnSI="restartService"/>
+                <Exit actionOnSI="restartService"/>
+            </Method>
+            <Method name="CreateService">
+                <Timeout duration="0" actionOnSI="restartService"/>
+                <Exit actionOnSI="restartService"/>
+                <Return controlCode="0" actionOnSI="keepAlive"/>
+                <Exception type="failure" controlCode="0" actionOnSI="restartService"/>
+                <Exception type="fatal"   controlCode="0" actionOnSI="restartService"/>
+            </Method>
+            <Method name="SessionEnter">
+                <Timeout duration="0" actionOnSI="restartService" actionOnWorkload="retry"/>
+                <Exit actionOnSI="restartService" actionOnWorkload="retry"/>
+                <Return controlCode="0" actionOnSI="keepAlive" actionOnWorkload="succeed"/>
+                <Exception type="failure" controlCode="0" actionOnSI="keepAlive" actionOnWorkload="retry"/>
+                <Exception type="fatal"   controlCode="0" actionOnSI="keepAlive" actionOnWorkload="fail"/>
+            </Method>
+            <Method name="Invoke">
+                <Timeout duration="0" actionOnSI="restartService" actionOnWorkload="retry"/>
+                <Exit actionOnSI="restartService" actionOnWorkload="retry"/>
+                <Return controlCode="0" actionOnSI="keepAlive" actionOnWorkload="succeed"/>
+                <Exception type="failure" controlCode="0" actionOnSI="keepAlive" actionOnWorkload="retry"/>
+                <Exception type="fatal"   controlCode="0" actionOnSI="keepAlive" actionOnWorkload="fail"/>
+            </Method>
+            <Method name="SessionLeave">
+                <Timeout duration="0" actionOnSI="restartService"/>
+                <Exit actionOnSI="restartService"/>
+                <Return controlCode="0" actionOnSI="keepAlive"/>
+                <Exception type="failure" controlCode="0" actionOnSI="keepAlive"/>
+                <Exception type="fatal"   controlCode="0" actionOnSI="keepAlive"/>
+            </Method>
+            <Method name="DestroyService">
+                <Timeout duration="15"/>
+            </Method>
+        </Control>
+    </Service>
+</Profile>

@@ -1,0 +1,27 @@
+{
+  "model_name": "surface_search_classifier",
+  "input_shape": [
+    8,
+    8,
+    1
+  ],
+  "num_classes": 7,
+  "class_names": [
+    "ballistic",
+    "cruise",
+    "drone",
+    "hypersonic",
+    "aircraft",
+    "decoy",
+    "unknown"
+  ],
+  "float_accuracy": 0.9428571462631226,
+  "qat_accuracy": 0.949999988079071,
+  "float_epochs": 10,
+  "qat_epochs": 5,
+  "train_samples": 3500,
+  "val_samples": 700,
+  "fbz_path": "/data/symintercept/akida/models/surface_search_classifier.fbz",
+  "fbz_size_bytes": 135556,
+  "trained_at": "2026-03-31T17:25:54Z"
+}

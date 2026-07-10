@@ -1,0 +1,9 @@
+.git
+.backup
+.venv
+.plans
+.cluster
+**/__pycache__
+*.tar
+*.tar.gz
+uv.lock

@@ -1,58 +1,70 @@
-# symphony-akida
+# Symphony + Akida — on-chip fleet inference
 
-A turnkey **IBM Spectrum Symphony** (Community Edition 7.3.4) cluster in Docker
-that runs **BrainChip Akida** models — with a runtime service that
-loads / unloads / hot-swaps any `.fbz` across the fleet, a management console,
-and a laptop control dashboard + Python client.
+Distribute AI inference across a fleet of **BrainChip Akida** AKD1000 devices on an **IBM
+Spectrum Symphony** (Community Edition) cluster. One master + one compute node per chip
+(capped at 7 — the CE 64-core limit); each node maps the model onto its chip
+(`hw_only=True`) and runs inference **on-silicon**.
 
-This is BrainChip's fork of the partner-provided SymAkida demo, extended to run
-inference on **real Akida silicon (AKD1000)** via device passthrough, plus two
-extra demo models and their sample workloads.
+## Two demos, one image
 
-## ▶ Get started
+Both apps build from the same image (`symphony-akida-demo:local`) and the same cluster.
+The launcher activates exactly one at a time — they never run in parallel. Run them
+back-to-back to show the contrast:
 
-**[QUICKSTART.md](QUICKSTART.md)** — install & run the demo in ~10 minutes
-(with screenshots and copy-paste commands). Start here.
+| App | Transport | Dispatch | Effect | Guide |
+|---|---|---|---|---|
+| **batch-inference** | Symphony SOAM | concurrent fan-out | every chip busy at once | [guide →](src/apps/batch-inference/README.md) |
+| **serial-http-round-robin** | plain HTTP | round-robin, one at a time | ~one chip busy at a moment | [guide →](src/apps/serial-http-round-robin/README.md) |
 
-For the full reference — HTTP API, first-boot behavior, teardown, and
-build-from-source — see **[BRAINCHIP-DEMO.md](BRAINCHIP-DEMO.md)**.
+Each app's README is the full clone → build → launch walkthrough.
 
-## What this fork adds
+<details>
+<summary><b>Setup (once — shared by both apps)</b></summary>
 
-- **On-chip execution** — each compute node runs against a physical AKD1000 via
-  device passthrough; the dashboard shows per-node **ON-CHIP (AKD1000)** vs
-  **SOFTWARE (CPU)** status.
-- **Two extra models** in [`.models/`](.models/) — a visual-wake-word person
-  detector and a keyword-spotting model, shipped as ready-to-load `.fbz`
-  (no conversion step needed; QUICKSTART stages them alongside the 3 models
-  baked into the image).
-- **Sample workloads** in [`samples/`](samples/) for the dashboard's
-  "Run across fleet" feature.
-
-## Repository layout
-
-| Path | What |
-|---|---|
-| [QUICKSTART.md](QUICKSTART.md) | Install & run walkthrough — **start here** |
-| [BRAINCHIP-DEMO.md](BRAINCHIP-DEMO.md) | Full cluster runbook (authoritative reference) |
-| `app.py`, `demo.py`, `akida_client.py` | Top-level dashboard + CLI + HTTP client |
-| [web/](web/) | Laptop control dashboard (Flask) — see [web/README.md](web/README.md) |
-| [symakida-client/](symakida-client/) | Standalone laptop client bundle — see [symakida-client/RUN.md](symakida-client/RUN.md) |
-| `.models/` | Two extra ready-to-load Akida models (`.fbz`) added by this fork |
-| `samples/` | Bundled sample inputs (`.json`) for fleet workloads |
-
-The 6.8 GB Docker image is **not** committed to git — it's distributed via
-GitHub Container Registry (GHCR). QUICKSTART covers the pull.
-
-## Cloning (Git LFS)
-
-Model (`*.fbz`) and sample (`samples/*.json`) files are stored with **Git LFS** —
-install it before cloning or you'll get pointer stubs:
+Run on the host with the Akida cards (`/dev/akida*` + the `akida_pcie` driver) and Docker.
 
 ```bash
-sudo apt-get install -y git-lfs   # or: brew install git-lfs
-git lfs install
-git clone https://github.com/Brainchip-Inc/symphony-akida.git
+git clone <repo-url> symphony-akida && cd symphony-akida
+git lfs install && git lfs pull                    # model .fbz + sample .npz
+curl -LsSf https://astral.sh/uv/install.sh | sh    # host tooling for the dashboards
+uv sync
+docker build -f docker/Dockerfile -t symphony-akida-demo:local .   # bakes BOTH app backends
 ```
 
-Already cloned without LFS? Run `git lfs pull`.
+Then open the app you want to run and follow its README. To switch demos, tear down and
+bring the other up:
+
+```bash
+./launch/down.sh && ./launch/up.sh <batch-inference|serial-http-round-robin>
+```
+</details>
+
+<details>
+<summary><b>Repository layout</b></summary>
+
+```
+docker/     image (FROM the Symphony+Akida base) + entrypoint; bakes both app backends
+launch/     up.sh <app> / down.sh — size the cluster to detected chips
+models/     on-chip .fbz models (Git LFS)
+data/       sample .npz sets (Git LFS)
+src/
+  common/   shared code: akida_chip (on-chip core), models allowlist, sample prep
+  apps/
+    batch-inference/          SOAM service + client + dashboard (concurrent)
+    serial-http-round-robin/  per-node HTTP server + client + dashboard (serial)
+```
+</details>
+
+<details>
+<summary><b>Design constraints</b></summary>
+
+- **Community Edition ≤ 64 cores** → master + 7 compute; an 8th chip idles.
+- **On-chip only** — a node with no mappable Akida device is not used for work.
+- **Repo-local** — everything under `.cluster/` (bind-mounted to `/shared`); no `/opt`, no host `sudo`.
+- **The image is defined by `docker/Dockerfile`, not shipped as a binary** — clone and
+  `docker build`; the base layer pulls from `ghcr.io/brainchip-inc/symphony-akida`.
+</details>
+
+## Contributing
+
+Commit convention and hook install: [CONTRIBUTING.md](CONTRIBUTING.md).

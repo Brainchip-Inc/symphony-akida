@@ -1,0 +1,24 @@
+{
+  "model_name": "kws_keyword_spotting_sparse",
+  "map_mode": "Minimal",
+  "input_shape": [
+    49,
+    10,
+    1
+  ],
+  "num_classes": 12,
+  "class_names": [
+    "_silence_",
+    "_unknown_",
+    "yes",
+    "no",
+    "up",
+    "down",
+    "left",
+    "right",
+    "on",
+    "off",
+    "stop",
+    "go"
+  ]
+}
