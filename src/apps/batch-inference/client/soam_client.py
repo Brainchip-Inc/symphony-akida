@@ -6,10 +6,15 @@ and submits one task per input sample; Symphony's session manager fans the tasks
 out across every compute node's Akida chip in parallel. It then reports the
 per-chip task distribution and throughput -- the multi-Akida advantage, measured.
 
-    run_client.sh --model kws_keyword_spotting --count 500
+Inputs are real samples prepared under /shared/samples (<model>.bin + sidecar) and
+sent as raw bytes (binary soamapi message), not JSON int arrays -- ~4x smaller on
+the wire and no parsing. A model with no sample set falls back to random uint8.
+
+    run_client.sh --model kws_keyword_spotting_sparse --count 500
 """
 from __future__ import print_function
 import argparse
+import array
 import json
 import os
 import random
@@ -22,6 +27,26 @@ import soamapi
 
 APP = os.environ.get("AKIDA_APP", "AkidaGenericService")
 MODELS_DIR = os.environ.get("AKIDA_MODELS_DIR", "/shared/models")
+SAMPLES_DIR = os.environ.get("AKIDA_SAMPLES_DIR", "/shared/samples")
+
+
+class TensorInputMessage(soamapi.Message):
+    """Binary task input. Wire format MUST match AkidaServiceContainer.py:
+       write_string(model); write_byte_array(array('B', tensor_bytes), 0, len)."""
+
+    def __init__(self, model="", data=b""):
+        super(TensorInputMessage, self).__init__()
+        self.model = model
+        self.data = data  # raw uint8 tensor bytes
+
+    def on_serialize(self, stream):
+        arr = array.array("B", self.data)
+        stream.write_string(self.model or "")
+        stream.write_byte_array(arr, 0, len(arr))
+
+    def on_deserialize(self, stream):
+        self.model = stream.read_string()
+        self.data = stream.read_byte_array("B").tobytes()
 
 
 def input_length(model):
@@ -37,9 +62,37 @@ def input_length(model):
     return n, shape
 
 
+def build_pool(model, n, count):
+    """A pool of raw-byte tensors to cycle through. Prefer real samples from
+    /shared/samples (<model>.bin + sidecar, read with the stdlib -- the 3.6
+    client has no numpy); otherwise fall back to random uint8 of the right size."""
+    base = os.path.join(SAMPLES_DIR, model)
+    side_p, bin_p = base + ".samples.json", base + ".bin"
+    if os.path.isfile(side_p) and os.path.isfile(bin_p):
+        side = json.load(open(side_p))
+        per = int(side.get("per_sample_bytes", 0))
+        avail = int(side.get("count", 0))
+        if per == n and avail > 0:
+            k = max(1, min(avail, count))
+            idx = list(range(avail))
+            random.shuffle(idx)
+            idx = idx[:k]
+            pool = []
+            with open(bin_p, "rb") as fh:
+                for i in idx:
+                    fh.seek(i * per)
+                    pool.append(fh.read(per))
+            return pool, "real (%d of %d)" % (k, avail)
+        print("[client] %s sample set mismatches model (per=%d n=%d); using random"
+              % (model, per, n), file=sys.stderr)
+    k = max(1, min(count, 256))
+    pool = [bytes(bytearray(random.getrandbits(8) for _ in range(n))) for _ in range(k)]
+    return pool, "random"
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="kws_keyword_spotting")
+    ap.add_argument("--model", default="kws_keyword_spotting_sparse")
     ap.add_argument("--count", type=int, default=500)
     ap.add_argument("--seed", type=int, default=1234)
     ap.add_argument("--max-services", type=int, default=0,
@@ -53,8 +106,12 @@ def main():
 
     n, shape = input_length(args.model)
     random.seed(args.seed)
-    print("[client] model=%s input_shape=%s tasks=%d -> %s"
-          % (args.model, shape, args.count, APP),
+    # Pre-build a pool of byte tensors once, then cycle through them. Cheap per-task
+    # submit + several sender threads let the client build a backlog and keep every
+    # chip saturated (a single thread cannot feed a fast fleet).
+    pool, source = build_pool(args.model, n, args.count)
+    print("[client] model=%s input_shape=%s tasks=%d samples=%s -> %s"
+          % (args.model, shape, args.count, source, APP),
           file=(sys.stderr if args.json else sys.stdout))
 
     soamapi.initialize()
@@ -67,21 +124,10 @@ def main():
         attrs.set_max_services(args.max_services)
     session = conn.create_session(attrs)
 
-    # Pre-build a pool of task payloads once (random uint8 of the model's shape),
-    # then cycle through them. Cheap per-task submit + several sender threads let
-    # the client build a backlog and keep every chip saturated (a single thread
-    # cannot feed a fast fleet). Memory stays bounded to the pool.
-    pool_size = min(args.count, 256)
-    payloads = [json.dumps({"model": args.model,
-                            "input": [random.randint(0, 255) for _ in range(n)]})
-                for _ in range(pool_size)]
-
     def submit(lo, hi):
         for i in range(lo, hi):
             tsa = soamapi.TaskSubmissionAttributes()
-            msg = soamapi.DefaultTextMessage()
-            msg.set_text(payloads[i % pool_size])
-            tsa.set_task_input(msg)
+            tsa.set_task_input(TensorInputMessage(args.model, pool[i % len(pool)]))
             session.send_task_input(tsa)
 
     t0 = time.time()
@@ -129,7 +175,7 @@ def main():
     avg_ms = (sum(per_host_us.values()) / ok / 1000.0) if ok else 0.0
     one_chip = (1000.0 / avg_ms) if avg_ms else 0.0
     result = {
-        "model": args.model, "count": args.count,
+        "model": args.model, "count": args.count, "input_source": source,
         "done": args.count - errors, "errors": errors,
         "chips": len(per_host), "wall_s": round(wall, 3),
         "throughput": round(rate, 1), "avg_ms": round(avg_ms, 3),
@@ -145,6 +191,7 @@ def main():
         return
 
     print("\n=== fan-out across the Akida fleet ===")
+    print("input samples: %s" % source)
     print("chips used:   %d" % result["chips"])
     print("tasks:        %d done, %d error" % (result["done"], errors))
     print("wall time:    %.2f s" % wall)

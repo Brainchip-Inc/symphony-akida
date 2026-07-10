@@ -41,7 +41,7 @@ Over SSH? Forward the port: `ssh -L 5001:localhost:5001 <user>@<host>` and open 
 uv run python src/apps/batch-inference/dashboard/app.py   # http://localhost:5001
 
 # ...or drive it straight from the CLI (runs the SOAM client inside the master):
-docker exec symphony-master /opt/akida-client/run_client.sh --model kws_keyword_spotting --count 5000
+docker exec symphony-master /opt/akida-client/run_client.sh --model kws_keyword_spotting_sparse --count 5000
 
 ./launch/down.sh                                          # tear down + wipe .cluster/
 ```
@@ -54,7 +54,7 @@ Three models that map `hw_only` on the AKD1000s (in `models/`, Git LFS):
 
 | Model | Input | Classes |
 |---|---|---|
-| `kws_keyword_spotting` | 49×10×1 | 33 keywords |
+| `kws_keyword_spotting_sparse` | 49×10×1 | 12 keywords |
 | `vww_person_detect` | 96×96×3 | person / background |
 | `surface_search_classifier` | 8×8×1 | 7 classes |
 
@@ -75,15 +75,18 @@ Add more by dropping an AKD1000-mappable `.fbz` (+ a `<name>_meta.json` with `in
 </details>
 
 <details>
-<summary><b>Generate larger sample sets</b></summary>
+<summary><b>Sample data</b></summary>
 
-The client generates N random samples inline (`--count`). To write a reusable file:
+Real sample sets ship as `data/samples/<model>.npz` (git LFS). At launch, `up.sh` converts
+each to a raw `<model>.bin` + `<model>.samples.json` sidecar under `/shared/samples` (via
+`src/common/prepare_samples.py`), and the client streams those tensors as **binary** — no
+JSON int arrays. A model with no `.npz` (e.g. `surface_search_classifier`) falls back to
+random uint8 generated inline, so it still runs.
 
 ```bash
-uv run python src/common/generate_samples.py --model kws_keyword_spotting --count 5000
+# regenerate the /shared bin sidecars by hand (up.sh does this automatically)
+uv run python src/common/prepare_samples.py --out .cluster/shared/samples
 ```
-
-Small 50-sample seeds for kws and surface_search are committed under `samples/` as examples.
 </details>
 
 <details>
