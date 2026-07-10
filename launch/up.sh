@@ -15,6 +15,8 @@ SHARED="$HERE/.cluster/shared"
 MODELS_SRC="$HERE/models"
 MAX_NODES="${MAX_NODES:-7}"          # CE 64-core cap: master + 7 compute = 64 cores
 CONSOLE_PORT="${CONSOLE_PORT:-8443}"
+SHM_BYTES="${AKIDA_SHM_BYTES:-8388608}"   # per-node shared input buffer (8 MiB); raise for bigger models
+SHM_SIZE="${AKIDA_SHM_SIZE:-128m}"        # docker /dev/shm size (must be >= SHM_BYTES)
 
 log(){ printf '\n[up] %s\n' "$*"; }
 msh(){ docker exec symphony-master bash -lc "source /opt/ibm/spectrumcomputing/profile.platform >/dev/null 2>&1; egosh user logon -u Admin -x Admin >/dev/null 2>&1; $*"; }
@@ -46,6 +48,20 @@ ls "$MODELS_SRC"/*.fbz >/dev/null 2>&1 || { echo "No models in $MODELS_SRC (*.fb
 cp "$MODELS_SRC"/*.fbz "$MODELS_SRC"/*.json "$SHARED/models/" 2>/dev/null || true
 log "seeded models: $(ls "$SHARED/models" | grep '\.fbz$' | tr '\n' ' ')"
 
+# --- seed real samples (npz -> /shared/samples: <model>.bin + sidecar) ------
+# Numpy-free client reads these; a model with no .npz falls back to random input.
+if ls "$HERE/data/samples"/*.npz >/dev/null 2>&1; then
+    if command -v uv >/dev/null 2>&1; then
+        if ( cd "$HERE" && uv run python src/common/prepare_samples.py --out "$SHARED/samples" ) 2>&1 | sed 's/^/    /'; then
+            log "seeded samples: $(ls "$SHARED/samples" 2>/dev/null | grep '\.bin$' | tr '\n' ' ')"
+        else
+            log "WARN: sample prep failed; client will use random inputs"
+        fi
+    else
+        log "WARN: uv not found; skipping sample prep (client will use random inputs)"
+    fi
+fi
+
 # --- network + master -------------------------------------------------------
 docker network create "$NETWORK" >/dev/null
 log "starting master (console https://localhost:$CONSOLE_PORT/platform, Admin/Admin)"
@@ -64,7 +80,8 @@ for j in $(seq 0 $((NODES-1))); do
     chip="${CHIPS[$j]}"
     docker run -d --privileged --name "symphony-compute-$j" \
         --network "$NETWORK" --hostname "symphony-compute-$j.local" --network-alias "symphony-compute-$j.local" \
-        -e HOST_ROLE=COMPUTE -e AKIDA_CHIP="$chip" \
+        -e HOST_ROLE=COMPUTE -e AKIDA_CHIP="$chip" -e AKIDA_SHM_BYTES="$SHM_BYTES" \
+        --shm-size="$SHM_SIZE" \
         --device="/dev/akida$chip" \
         -v "$SHARED:/shared" \
         "$IMAGE" >/dev/null

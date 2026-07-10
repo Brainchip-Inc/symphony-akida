@@ -22,9 +22,10 @@ export AKIDA_WORKER_PY="$DEPLOY_DIR/akida_worker.py"
 export AKIDA_PYTHON="/opt/python3.12/bin/python3.12"
 export AKIDA_VENV_SITEPACKAGES="/opt/akida-venv/lib/python3.12/site-packages"
 
-# Per-node settings (AKIDA_DEVICE_INDEX etc.) written by the entrypoint from the
-# container env; sourced here because SOAM does not inherit the container env.
+# Per-node settings (AKIDA_DEVICE_INDEX, AKIDA_SHM_BYTES) written by the entrypoint
+# from the container env; sourced here because SOAM does not inherit the container env.
 [ -f /opt/akida-service/node.env ] && source /opt/akida-service/node.env
+export AKIDA_SHM_BYTES="${AKIDA_SHM_BYTES:-8388608}"   # shared input buffer size (bytes)
 
 LOGDIR="/shared/soam/akida-service/logs"
 mkdir -p "$LOGDIR"

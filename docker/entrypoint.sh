@@ -56,7 +56,10 @@ fi
 # with a clean env, so the worker reads this file (sourced by the wrapper).
 # After the remap above, the assigned chip is the only device -> index 0.
 if [ -d "$akida_dir" ]; then
-    echo "export AKIDA_DEVICE_INDEX=0" > "$akida_dir/node.env"
+    {
+        echo "export AKIDA_DEVICE_INDEX=0"
+        echo "export AKIDA_SHM_BYTES=${AKIDA_SHM_BYTES:-8388608}"
+    } > "$akida_dir/node.env"
 fi
 
 # SSH access (optional): pass -e SSH_PUBLIC_KEY to enable key login as egoadmin.

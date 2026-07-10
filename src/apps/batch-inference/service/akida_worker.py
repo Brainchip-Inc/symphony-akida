@@ -1,20 +1,32 @@
 """Akida on-chip inference worker (Python 3.12).
 
-Runs as a subprocess of the SOAM ServiceContainer and speaks JSON-per-line over
-stdio. It acquires a real Akida device, maps a model onto it with
+Runs as a subprocess of the SOAM ServiceContainer and speaks a small framed
+protocol over stdio. It acquires a real Akida device, maps a model onto it with
 ``hw_only=True``, and runs ``forward()`` on-chip. Strict rules:
 
 - No device visible            -> exit without READY (the SI never serves; the node is not used).
 - Model will not map hw_only   -> hard error (that model does not run on this silicon).
 - Ready only after a successful hardware map; each input is then a plain forward.
 
-Protocol (one JSON object per line):
-  {"model":"kws_keyword_spotting","input":[...]} -> {cls,cls_name,inference_us,host,device,model}
-  {"action":"shutdown"}                          -> exit
-The model is (re)mapped only when it differs from the one currently on the chip,
-so a batch of one model maps once and then just forwards.
+Transport. The input tensor is raw uint8 bytes (not a JSON int array). Each task is
+a JSON **header line** followed, for large tensors, by the bytes themselves:
+
+  {"model": <str|null>, "n": <nbytes>}\\n                 -> tensor is in the shared buffer, shm[0:n]
+  {"model": <str|null>, "n": <nbytes>, "inline": true}\\n + <n raw bytes>   -> tensor follows on stdin
+  {"model": <str|null>, "input": [ints...]}\\n            -> back-compat JSON array
+  {"action": "shutdown"}\\n                               -> exit
+  {"action": "load", "name": <model>}\\n                  -> (re)map a model
+
+The shared buffer is a /dev/shm file the ServiceContainer writes and we mmap once
+at startup (AKIDA_SHM_PATH / AKIDA_SHM_BYTES); reading it is zero-copy. The SI
+serialises invokes, so shm[0:n] is stable between our read and our reply.
+
+Reply is one JSON line: {cls, cls_name, inference_us, host, device, model}. The
+model is (re)mapped only when it differs from the one on the chip, so a batch of
+one model maps once and then just forwards.
 """
 import json
+import mmap
 import os
 import socket
 import sys
@@ -31,6 +43,19 @@ def _fail(msg):
     sys.stderr.write("[akida-worker] FATAL: %s\n" % msg)
     sys.stderr.flush()
     sys.exit(1)
+
+
+def _read_exact(stream, n):
+    """Read exactly n bytes from a binary stream (pipes can short-read)."""
+    chunks = []
+    got = 0
+    while got < n:
+        b = stream.read(n - got)
+        if not b:
+            raise EOFError("stdin closed after %d/%d bytes" % (got, n))
+        chunks.append(b)
+        got += len(b)
+    return b"".join(chunks)
 
 
 def select_device():
@@ -71,6 +96,27 @@ def _classes(path, n):
     return [str(i) for i in range(n)]
 
 
+def _map_mode(path):
+    """Per-model MapMode name from the meta sidecar (default AllNps).
+
+    AllNps spreads each layer across all NPs for max parallelism, but for a
+    high-sparsity model (e.g. the sparse kws net) some NP partitions can receive
+    all-zero activity on certain inputs, which the hardware's output accounting
+    mishandles -> a 5s fetch-timeout. Such models set "map_mode": "Minimal" to
+    keep the mapping compact and avoid it.
+    """
+    base = path[:-4]
+    for suf in ("_meta.json", "_params.json", ".json"):
+        p = base + suf
+        if not os.path.isfile(p):
+            continue
+        try:
+            return json.load(open(p)).get("map_mode") or "AllNps"
+        except Exception:
+            break
+    return "AllNps"
+
+
 class Chip:
     def __init__(self, device):
         self.device = device
@@ -78,6 +124,7 @@ class Chip:
         self.model = None
         self.stem = None
         self.ishape = None
+        self.n = None
         self.classes = None
 
     def load(self, name):
@@ -87,25 +134,29 @@ class Chip:
         if not os.path.isfile(path):
             raise FileNotFoundError("no such model: %s" % path)
         m = akida.Model(path)
-        # AllNps spreads the model across all neural processors on the device.
-        m.map(self.device, hw_only=True, mode=akida.MapMode.AllNps)
+        mode_name = _map_mode(path)
+        mode = getattr(akida.MapMode, mode_name, akida.MapMode.AllNps)
+        m.map(self.device, hw_only=True, mode=mode)
+        sys.stderr.write("[akida-worker] mapped %s mode=%s hw_only\n" % (_stem(path), mode_name))
+        sys.stderr.flush()
         self.model = m
         self.stem = _stem(path)
         self.ishape = tuple(int(d) for d in m.input_shape)
+        self.n = int(np.prod(self.ishape))
         nout = int(np.prod(m.output_shape))
         self.classes = _classes(path, nout)
         return {"name": self.stem, "input_shape": list(self.ishape),
                 "num_classes": nout, "class_names": self.classes, "device": self.desc}
 
-    def infer(self, raw):
+    def infer(self, arr):
+        """arr: 1-D uint8 ndarray/buffer of exactly prod(input_shape) values."""
         if self.model is None:
             raise RuntimeError("no model mapped")
-        arr = np.asarray(raw)
-        n = int(np.prod(self.ishape))
-        if arr.size != n:
+        arr = np.asarray(arr, dtype=np.uint8).reshape(-1)
+        if arr.size != self.n:
             raise ValueError("input has %d values, model expects %d %s"
-                             % (arr.size, n, list(self.ishape)))
-        x = arr.reshape((1,) + tuple(self.ishape)).astype(np.uint8)
+                             % (arr.size, self.n, list(self.ishape)))
+        x = arr.reshape((1,) + tuple(self.ishape))
         t0 = time.perf_counter()
         y = self.model.forward(x)
         us = int((time.perf_counter() - t0) * 1e6)
@@ -116,6 +167,24 @@ class Chip:
         return {"cls": cls,
                 "cls_name": self.classes[cls] if cls < len(self.classes) else str(cls),
                 "inference_us": us, "host": HOST, "device": self.desc, "model": self.stem}
+
+
+def _open_shm():
+    """mmap the shared /dev/shm buffer the ServiceContainer writes, if configured."""
+    path = os.environ.get("AKIDA_SHM_PATH")
+    nbytes = int(os.environ.get("AKIDA_SHM_BYTES", "0") or 0)
+    if not path or nbytes <= 0:
+        return None
+    try:
+        f = open(path, "rb")  # SI creates + sizes it before spawning us
+        mm = mmap.mmap(f.fileno(), nbytes, access=mmap.ACCESS_READ)
+        sys.stderr.write("[akida-worker] shm mapped %s (%d bytes)\n" % (path, nbytes))
+        sys.stderr.flush()
+        return mm
+    except Exception as e:
+        sys.stderr.write("[akida-worker] shm map failed (%s); inline only\n" % e)
+        sys.stderr.flush()
+        return None
 
 
 def main():
@@ -133,23 +202,36 @@ def main():
             sys.stderr.write("[akida-worker] mapped default %s hw_only\n" % default)
         except Exception as e:
             _fail("default model %r failed to map hw_only: %s" % (default, e))
+    shm = _open_shm()
     sys.stderr.flush()
 
+    stdin = sys.stdin.buffer
     sys.stdout.write("READY\n")
     sys.stdout.flush()
 
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
+    while True:
+        header = stdin.readline()
+        if not header:
+            break  # SI closed the pipe
+        header = header.strip()
+        if not header:
             continue
         try:
-            req = json.loads(line)
+            req = json.loads(header.decode("utf-8"))
             if req.get("action") == "shutdown":
                 break
-            if "input" in req:
-                model = req.get("model")
-                if model and _stem(model) != chip.stem:
-                    chip.load(model)
+            model = req.get("model")
+            if model and _stem(model) != chip.stem:
+                chip.load(model)
+            if "n" in req:
+                n = int(req["n"])
+                if req.get("inline") or shm is None:
+                    buf = _read_exact(stdin, n)
+                    arr = np.frombuffer(buf, dtype=np.uint8, count=n)
+                else:
+                    arr = np.frombuffer(shm, dtype=np.uint8, count=n)
+                resp = chip.infer(arr)
+            elif "input" in req:  # back-compat JSON int array
                 resp = chip.infer(req["input"])
             elif req.get("action") == "load":
                 resp = {"ok": True, "model": chip.load(req["name"])}
