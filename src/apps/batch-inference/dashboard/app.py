@@ -10,11 +10,15 @@ by this dashboard (which is what the old demo did).
 import json
 import os
 import subprocess
+import sys
 
 from flask import Flask, jsonify, request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
+sys.path.insert(0, os.path.join(REPO, "src", "common"))
+from models import visible  # noqa: E402  shared KWS+VWW allowlist
+
 MODELS_DIR = os.environ.get("AKIDA_MODELS_DIR", os.path.join(REPO, "models"))
 MASTER = os.environ.get("MASTER_CONTAINER", "symphony-master")
 CLIENT = "/opt/akida-client/run_client.sh"
@@ -24,9 +28,8 @@ app = Flask(__name__)
 
 
 def list_models():
-    if not os.path.isdir(MODELS_DIR):
-        return []
-    return sorted(f[:-4] for f in os.listdir(MODELS_DIR) if f.endswith(".fbz"))
+    # Only the allowlisted models (KWS + VWW) that are actually present in models/.
+    return visible(MODELS_DIR)
 
 
 @app.route("/api/models")
