@@ -34,19 +34,21 @@ log(){ printf '\n[up] %s\n' "$*"; }
 msh(){ docker exec symphony-master bash -lc "source /opt/ibm/spectrumcomputing/profile.platform >/dev/null 2>&1; egosh user logon -u Admin -x Admin >/dev/null 2>&1; $*"; }
 
 # --- detect + health-probe chips -------------------------------------------
-present=$(ls /dev/akida* 2>/dev/null | grep -Ec 'akida[0-9]+' || true)
-[ "${present:-0}" -ge 1 ] || { echo "No /dev/akida* devices found; this demo needs Akida hardware." >&2; exit 1; }
-log "found $present Akida chip node(s); probing health..."
+# Two families of chip nodes: AKD1500 (/dev/akd1500_<N>, preferred) and AKD1000/NSoC_v2
+# (/dev/akida<N>). probe_chips.sh returns healthy /dev node names, AKD1500 first.
+present=$(ls -d /dev/akd1500_* /dev/akida[0-9]* 2>/dev/null | grep -Ec 'akd1500_[0-9]+|akida[0-9]+' || true)
+[ "${present:-0}" -ge 1 ] || { echo "No Akida devices (/dev/akd1500_* or /dev/akida*) found; this demo needs Akida hardware." >&2; exit 1; }
+log "found $present Akida chip node(s); probing health (AKD1500 preferred)..."
 mapfile -t HEALTHY < <(docker run --rm --privileged --entrypoint /opt/akida-service/probe_chips.sh "$IMAGE" 2>/dev/null)
 total=${#HEALTHY[@]}
-[ "$total" -ge 1 ] || { echo "No healthy Akida chips found. Try: sudo modprobe -r akida_pcie && sudo modprobe akida_pcie" >&2; exit 1; }
+[ "$total" -ge 1 ] || { echo "No healthy Akida chips found. Try: sudo modprobe -r akida-pcie && sudo modprobe akida-pcie" >&2; exit 1; }
 [ "$total" -lt "$present" ] && log "$((present-total)) chip(s) unhealthy -- skipping"
 NODES=$total
 if [ "$NODES" -gt "$MAX_NODES" ]; then
     log "capping at $MAX_NODES nodes (Symphony CE 64-core limit) -- $((total-MAX_NODES)) healthy chip(s) idle"
     NODES=$MAX_NODES
 fi
-CHIPS=("${HEALTHY[@]:0:$NODES}")
+CHIPS=("${HEALTHY[@]:0:$NODES}")   # /dev node names, e.g. akd1500_0 akd1500_1 ...
 log "app=$APP: launching 1 master + $NODES compute node(s) on chips: ${CHIPS[*]}"
 
 # --- clean slate ------------------------------------------------------------
@@ -90,7 +92,7 @@ for i in $(seq 1 60); do msh "soamview app >/dev/null 2>&1" && break; sleep 3; d
 
 # --- compute nodes ----------------------------------------------------------
 for j in $(seq 0 $((NODES-1))); do
-    chip="${CHIPS[$j]}"
+    node="${CHIPS[$j]}"
     extra=()
     # serial-http-round-robin: publish this node's HTTP server (container :8790) on
     # host port PORT_BASE+j and have the entrypoint start it (START_HTTP=1).
@@ -99,9 +101,9 @@ for j in $(seq 0 $((NODES-1))); do
     fi
     docker run -d --privileged --name "symphony-compute-$j" \
         --network "$NETWORK" --hostname "symphony-compute-$j.local" --network-alias "symphony-compute-$j.local" \
-        -e HOST_ROLE=COMPUTE -e AKIDA_CHIP="$chip" -e AKIDA_SHM_BYTES="$SHM_BYTES" \
+        -e HOST_ROLE=COMPUTE -e AKIDA_CHIP_NODE="$node" -e AKIDA_SHM_BYTES="$SHM_BYTES" \
         --shm-size="$SHM_SIZE" \
-        --device="/dev/akida$chip" \
+        --device="/dev/$node" \
         -v "$SHARED:/shared" \
         ${extra[@]+"${extra[@]}"} \
         "$IMAGE" >/dev/null

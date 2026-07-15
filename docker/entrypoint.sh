@@ -38,18 +38,29 @@ if [ -n "${EGO_DEFINE_NCPUS:-}" ]; then
     log "EGO_DEFINE_NCPUS=$EGO_DEFINE_NCPUS"
 fi
 
-# Pin this node to exactly one Akida chip. Under --privileged the container's
-# /dev (a private tmpfs) exposes ALL host chips, and every akida process would
-# enumerate + DMA-configure all of them -- with one worker per node that causes
-# DMA contention and slow/failed init. akida enumerates /dev/akida0.. contiguously,
-# so we drop all nodes and recreate /dev/akida0 pointing at this node's assigned
-# chip. The host's /dev is a separate tmpfs and is not affected.
-if [ -n "${AKIDA_CHIP:-}" ] && [ -e "/dev/akida${AKIDA_CHIP}" ]; then
-    maj=$((16#$(stat -c '%t' "/dev/akida${AKIDA_CHIP}")))
-    min=$((16#$(stat -c '%T' "/dev/akida${AKIDA_CHIP}")))
-    rm -f /dev/akida[0-9]*
-    mknod /dev/akida0 c "$maj" "$min" && chmod 666 /dev/akida0
-    log "pinned to Akida chip ${AKIDA_CHIP} (exposed as /dev/akida0)"
+# Pin this node to exactly one Akida chip. Under --privileged the container's /dev
+# (a private tmpfs) exposes ALL host chips -- both AKD1500 (/dev/akd1500_<N>) and
+# AKD1000/NSoC_v2 (/dev/akida<N>). With one worker per node, every akida process would
+# otherwise enumerate + DMA-configure all of them -- causing DMA contention, multi-second
+# enumeration stalls, and occasionally dropped devices. akida enumerates each family
+# contiguously from slot 0, so we drop every chip node and recreate ONLY this node's
+# assigned chip at slot 0 of its family. The host's /dev is a separate tmpfs, unaffected.
+#
+# AKIDA_CHIP_NODE is the assigned /dev basename (e.g. "akd1500_3" or "akida0"), as chosen
+# by launch/up.sh from probe_chips.sh. Legacy AKIDA_CHIP (a bare AKD1000 index) still works.
+node="${AKIDA_CHIP_NODE:-}"
+[ -z "$node" ] && [ -n "${AKIDA_CHIP:-}" ] && node="akida${AKIDA_CHIP}"
+if [ -n "$node" ] && [ -e "/dev/$node" ]; then
+    maj=$((16#$(stat -c '%t' "/dev/$node")))
+    min=$((16#$(stat -c '%T' "/dev/$node")))
+    find /dev -maxdepth 1 -name 'akida[0-9]*' -delete 2>/dev/null
+    find /dev -maxdepth 1 -name 'akd1500_*'   -delete 2>/dev/null
+    case "$node" in
+        akd1500_*) slot=/dev/akd1500_0 ;;
+        *)         slot=/dev/akida0 ;;
+    esac
+    mknod "$slot" c "$maj" "$min" && chmod 666 "$slot"
+    log "pinned to Akida chip $node (exposed as $slot)"
 fi
 
 # Persist per-node settings for the SOAM wrappers: SOAM launches the instance with a clean
@@ -140,8 +151,8 @@ COMPUTE)
     # maps a model hw_only on its chip and answers the dashboard's round-robin /infer.
     # (The batch-inference app leaves START_HTTP unset; its work goes through SOAM.)
     # Run it as egoadmin (uid 1000, like the SOAM SIs) so its /shared logs stay
-    # egoadmin-owned and down.sh can wipe .cluster without host sudo. /dev/akida0 is
-    # chmod 666 above, so egoadmin can drive the chip.
+    # egoadmin-owned and down.sh can wipe .cluster without host sudo. The pinned chip
+    # node is chmod 666 above, so egoadmin can drive the chip.
     if [ "${START_HTTP:-0}" = "1" ] && [ -x /opt/akida-http/run_http_server.sh ]; then
         log "starting per-node HTTP inference server (serial-http-round-robin) on :${HTTP_PORT:-8790}"
         su egoadmin -c "HTTP_PORT='${HTTP_PORT:-8790}' /opt/akida-http/run_http_server.sh" &
