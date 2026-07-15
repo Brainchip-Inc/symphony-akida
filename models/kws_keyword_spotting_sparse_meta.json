@@ -1,6 +1,6 @@
 {
   "model_name": "kws_keyword_spotting_sparse",
-  "map_mode": "Minimal",
+  "map_mode": "HwPr",
   "input_shape": [
     49,
     10,

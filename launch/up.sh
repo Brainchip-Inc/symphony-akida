@@ -17,8 +17,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="${1:-batch-inference}"
 case "$APP" in
-    batch-inference|serial-http-round-robin) ;;
-    *) echo "unknown app: '$APP' (use: batch-inference | serial-http-round-robin)" >&2; exit 1;;
+    batch-inference|serial-http-round-robin|image-shard-inference) ;;
+    *) echo "unknown app: '$APP' (use: batch-inference | serial-http-round-robin | image-shard-inference)" >&2; exit 1;;
 esac
 IMAGE="${IMAGE:-symphony-akida-demo:local}"
 NETWORK="${NETWORK:-symcluster}"
@@ -34,19 +34,21 @@ log(){ printf '\n[up] %s\n' "$*"; }
 msh(){ docker exec symphony-master bash -lc "source /opt/ibm/spectrumcomputing/profile.platform >/dev/null 2>&1; egosh user logon -u Admin -x Admin >/dev/null 2>&1; $*"; }
 
 # --- detect + health-probe chips -------------------------------------------
-present=$(ls /dev/akida* 2>/dev/null | grep -Ec 'akida[0-9]+' || true)
-[ "${present:-0}" -ge 1 ] || { echo "No /dev/akida* devices found; this demo needs Akida hardware." >&2; exit 1; }
-log "found $present Akida chip node(s); probing health..."
+# Two families of chip nodes: AKD1500 (/dev/akd1500_<N>, preferred) and AKD1000/NSoC_v2
+# (/dev/akida<N>). probe_chips.sh returns healthy /dev node names, AKD1500 first.
+present=$(ls -d /dev/akd1500_* /dev/akida[0-9]* 2>/dev/null | grep -Ec 'akd1500_[0-9]+|akida[0-9]+' || true)
+[ "${present:-0}" -ge 1 ] || { echo "No Akida devices (/dev/akd1500_* or /dev/akida*) found; this demo needs Akida hardware." >&2; exit 1; }
+log "found $present Akida chip node(s); probing health (AKD1500 preferred)..."
 mapfile -t HEALTHY < <(docker run --rm --privileged --entrypoint /opt/akida-service/probe_chips.sh "$IMAGE" 2>/dev/null)
 total=${#HEALTHY[@]}
-[ "$total" -ge 1 ] || { echo "No healthy Akida chips found. Try: sudo modprobe -r akida_pcie && sudo modprobe akida_pcie" >&2; exit 1; }
+[ "$total" -ge 1 ] || { echo "No healthy Akida chips found. Try: sudo modprobe -r akida-pcie && sudo modprobe akida-pcie" >&2; exit 1; }
 [ "$total" -lt "$present" ] && log "$((present-total)) chip(s) unhealthy -- skipping"
 NODES=$total
 if [ "$NODES" -gt "$MAX_NODES" ]; then
     log "capping at $MAX_NODES nodes (Symphony CE 64-core limit) -- $((total-MAX_NODES)) healthy chip(s) idle"
     NODES=$MAX_NODES
 fi
-CHIPS=("${HEALTHY[@]:0:$NODES}")
+CHIPS=("${HEALTHY[@]:0:$NODES}")   # /dev node names, e.g. akd1500_0 akd1500_1 ...
 log "app=$APP: launching 1 master + $NODES compute node(s) on chips: ${CHIPS[*]}"
 
 # --- clean slate ------------------------------------------------------------
@@ -56,6 +58,7 @@ rm -rf "$HERE/.cluster"
 
 # --- seed models ------------------------------------------------------------
 mkdir -p "$SHARED/models"
+mkdir -p "$SHARED/pipeline"     # image-shard-inference: per-image segment/grid bus (/shared/pipeline)
 ls "$MODELS_SRC"/*.fbz >/dev/null 2>&1 || { echo "No models in $MODELS_SRC (*.fbz). Run 'git lfs pull' first." >&2; exit 1; }
 cp "$MODELS_SRC"/*.fbz "$MODELS_SRC"/*.json "$SHARED/models/" 2>/dev/null || true
 log "seeded models: $(ls "$SHARED/models" | grep '\.fbz$' | tr '\n' ' ')"
@@ -89,7 +92,7 @@ for i in $(seq 1 60); do msh "soamview app >/dev/null 2>&1" && break; sleep 3; d
 
 # --- compute nodes ----------------------------------------------------------
 for j in $(seq 0 $((NODES-1))); do
-    chip="${CHIPS[$j]}"
+    node="${CHIPS[$j]}"
     extra=()
     # serial-http-round-robin: publish this node's HTTP server (container :8790) on
     # host port PORT_BASE+j and have the entrypoint start it (START_HTTP=1).
@@ -98,9 +101,9 @@ for j in $(seq 0 $((NODES-1))); do
     fi
     docker run -d --privileged --name "symphony-compute-$j" \
         --network "$NETWORK" --hostname "symphony-compute-$j.local" --network-alias "symphony-compute-$j.local" \
-        -e HOST_ROLE=COMPUTE -e AKIDA_CHIP="$chip" -e AKIDA_SHM_BYTES="$SHM_BYTES" \
+        -e HOST_ROLE=COMPUTE -e AKIDA_CHIP_NODE="$node" -e AKIDA_SHM_BYTES="$SHM_BYTES" \
         --shm-size="$SHM_SIZE" \
-        --device="/dev/akida$chip" \
+        --device="/dev/$node" \
         -v "$SHARED:/shared" \
         ${extra[@]+"${extra[@]}"} \
         "$IMAGE" >/dev/null
@@ -130,6 +133,31 @@ if [ "$APP" = "batch-inference" ]; then
     msh "soamview service AkidaGenericService 2>&1" | sed 's/^/    /'
     log "cluster up (batch-inference). Run the dashboard:"
     log "    uv run python src/apps/batch-inference/dashboard/app.py   # http://localhost:5001"
+elif [ "$APP" = "image-shard-inference" ]; then
+    log "registering + enabling the 3 shard services (segment=mgmt, inference=1/chip, stitch=mgmt)"
+    docker exec symphony-master /opt/akida-shard-service/register.sh "$NODES" 2>&1 | sed 's/^/    /'
+
+    log "waiting for $NODES inference instance(s) to map on-chip..."
+    for i in $(seq 1 40); do
+        n=$(grep -l "worker READY" "$SHARED"/soam/shard-inference/logs/si-*.log 2>/dev/null | wc -l) || true
+        [ "${n:-0}" -ge "$NODES" ] && break
+        sleep 3
+    done
+    log "waiting for the segment + stitch instance(s)..."
+    for i in $(seq 1 20); do
+        n=$(grep -l "ready;" "$SHARED"/soam/shard-cpu/logs/*.log 2>/dev/null | wc -l) || true
+        [ "${n:-0}" -ge 2 ] && break
+        sleep 3
+    done
+
+    log "service instance placement:"
+    for app in ShardSegmentService ShardInferenceService ShardStitchService; do
+        msh "soamview service $app 2>&1" | sed 's/^/    /'
+    done
+    log "cluster up (image-shard-inference). Run the dashboard:"
+    log "    uv run python src/apps/image-shard-inference/dashboard/app.py   # http://localhost:5001"
+    log "or drive it from the CLI:"
+    log "    docker exec symphony-master /opt/akida-shard-client/run_client.sh --count 200"
 else
     # serial-http-round-robin: each compute already started its HTTP server (START_HTTP=1).
     log "waiting for $NODES per-node HTTP server(s) to map on-chip..."

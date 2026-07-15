@@ -32,5 +32,14 @@ RUN chmod +x /opt/akida-client/*.sh
 COPY src/apps/serial-http-round-robin/service/ /opt/akida-http/
 RUN chmod +x /opt/akida-http/*.sh
 
+# App 3 (image-shard-inference) three SOAM services -- segment (CPU) + inference (python3.6
+# container + python3.12 akida worker, reusing /opt/akida-common) + stitch (CPU) -- prebuilt
+# into three deploy packages that launch/up.sh registers, plus the thin orchestrator client
+# run from the master.
+COPY src/apps/image-shard-inference/service/ /opt/akida-shard-service/
+RUN chmod +x /opt/akida-shard-service/*.sh && /opt/akida-shard-service/build_packages.sh
+COPY src/apps/image-shard-inference/client/ /opt/akida-shard-client/
+RUN chmod +x /opt/akida-shard-client/*.sh
+
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["--hold"]

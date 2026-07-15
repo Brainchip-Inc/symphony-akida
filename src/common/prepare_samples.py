@@ -43,7 +43,11 @@ def convert(npz_path, models_dir, out_dir):
     if not os.path.isfile(meta_path):
         raise SystemExit("no metadata for %s (expected %s)" % (model, meta_path))
     meta = json.load(open(meta_path))
-    shape = meta["input_shape"]
+    # Apps whose client sends a larger image than the model input (e.g. the shard app sends
+    # a full 448x448x3 image that services later split into 224x224x3 segments) declare a
+    # "sample_input_shape"; validate + flatten against that. Classifier models omit it and
+    # fall back to the model input_shape, so their prep is unchanged.
+    shape = meta.get("sample_input_shape") or meta["input_shape"]
     n = int(np.prod(shape))
 
     with np.load(npz_path) as npz:

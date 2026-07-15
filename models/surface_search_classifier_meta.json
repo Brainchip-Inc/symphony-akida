@@ -1,5 +1,6 @@
 {
   "model_name": "surface_search_classifier",
+  "map_mode": "HwPr",
   "input_shape": [
     8,
     8,

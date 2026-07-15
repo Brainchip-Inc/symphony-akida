@@ -17,8 +17,9 @@ maps on the AKD1000 (so the ON-CHIP badge is truthful), only KWS + VWW are shown
 workload is fed from the real .npz samples (via prepare_samples.py's <model>.bin) instead
 of the old fat *.samples.json int-lists.
 
-Run (from the repo, deps already installed via uv):
-    AKIDA_NODE_COUNT=$(ls -d /dev/akida* 2>/dev/null | wc -l) \
+Run (from the repo, deps already installed via uv) -- run_dashboard.sh auto-sizes the node
+count (AKD1500 + AKD1000 chips, capped at 7); or set it explicitly:
+    AKIDA_NODE_COUNT=$(ls -d /dev/akd1500_* /dev/akida[0-9]* 2>/dev/null | wc -l) \
         uv run python src/apps/serial-http-round-robin/dashboard/app.py   # http://localhost:5001
 """
 import json

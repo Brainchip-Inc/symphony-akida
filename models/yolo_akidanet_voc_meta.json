@@ -1,0 +1,52 @@
+{
+  "model_name": "yolo_akidanet_voc",
+  "map_mode": "HwPr",
+  "input_shape": [
+    224,
+    224,
+    3
+  ],
+  "sample_input_shape": [
+    448,
+    448,
+    3
+  ],
+  "num_classes": 2,
+  "class_names": [
+    "car",
+    "person"
+  ],
+  "output_shape": [
+    7,
+    7,
+    35
+  ],
+  "grid": [
+    7,
+    7
+  ],
+  "num_anchors": 5,
+  "box_per_anchor": 7,
+  "anchors": [
+    [
+      0.56,
+      1.03
+    ],
+    [
+      1.38,
+      2.85
+    ],
+    [
+      2.44,
+      5.31
+    ],
+    [
+      4.36,
+      3.9
+    ],
+    [
+      7.06,
+      8.3
+    ]
+  ]
+}

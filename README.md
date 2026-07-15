@@ -5,9 +5,9 @@ Spectrum Symphony** (Community Edition) cluster. One master + one compute node p
 (capped at 7 — the CE 64-core limit); each node maps the model onto its chip
 (`hw_only=True`) and runs inference **on-silicon**.
 
-## Two demos, one image
+## Three demos, one image
 
-Both apps build from the same image (`symphony-akida-demo:local`) and the same cluster.
+All apps build from the same image (`symphony-akida-demo:local`) and the same cluster.
 The launcher activates exactly one at a time — they never run in parallel. Run them
 back-to-back to show the contrast:
 
@@ -15,6 +15,7 @@ back-to-back to show the contrast:
 |---|---|---|---|---|
 | **batch-inference** | Symphony SOAM | concurrent fan-out | every chip busy at once | [guide →](src/apps/batch-inference/README.md) |
 | **serial-http-round-robin** | plain HTTP | round-robin, one at a time | ~one chip busy at a moment | [guide →](src/apps/serial-http-round-robin/README.md) |
+| **image-shard-inference** | Symphony SOAM (3-stage) | split → fan-out → stitch | one 448 image across 5 chips in parallel | [guide →](src/apps/image-shard-inference/README.md) |
 
 Each app's README is the full clone → build → launch walkthrough.
 
@@ -52,6 +53,7 @@ src/
   apps/
     batch-inference/          SOAM service + client + dashboard (concurrent)
     serial-http-round-robin/  per-node HTTP server + client + dashboard (serial)
+    image-shard-inference/    3 SOAM services (segment/inference/stitch) + client + dashboard
 ```
 </details>
 
