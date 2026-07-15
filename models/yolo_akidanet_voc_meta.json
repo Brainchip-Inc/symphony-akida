@@ -1,6 +1,6 @@
 {
   "model_name": "yolo_akidanet_voc",
-  "map_mode": "AllNps",
+  "map_mode": "HwPr",
   "input_shape": [
     224,
     224,

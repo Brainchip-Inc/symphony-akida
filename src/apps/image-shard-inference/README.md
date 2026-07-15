@@ -3,7 +3,7 @@
 Take one large **448×448×3** image, split it into **five 224×224×3 segments** (four quadrants +
 an overlapping center), run each segment through the **same** model on a **separate Akida chip in
 parallel**, then stitch the five detection outputs back into one result for the full image. A
-single AKD1000 can't take a 448 input cheaply, so sharding across chips buys the throughput of a
+single chip can't take a 448 input cheaply, so sharding across chips buys the throughput of a
 224 model while covering a higher-resolution image.
 
 The whole pipeline is **three Symphony SOAM services** — the client only sends an image and reads
@@ -21,7 +21,7 @@ client (master, thin)                         SOAM services (scheduled by Sympho
 Big tensors travel over the shared dir (`/shared/pipeline/<image_id>/`); only tiny references +
 the input image + final detections cross SOAM. The inference stage uses the same python3.6
 container + python3.12 akida worker + `/dev/shm` hand-off as the batch-inference app, and imports
-the shared `Chip` on-chip core (`hw_only`, map mode `AllNps` like vww) — it just returns the raw
+the shared `Chip` on-chip core (`hw_only`, map mode 2 = `HwPr`) — it just returns the raw
 detector grid (`Chip.forward_raw`) instead of an argmax class.
 
 > Inputs are random (`data/samples/yolo_akidanet_voc.npz`), so detections are meaningless — this
@@ -30,7 +30,8 @@ detector grid (`Chip.forward_raw`) instead of an argmax class.
 <details open>
 <summary><b>First run (fresh clone)</b></summary>
 
-Run on the host with the Akida cards (`/dev/akida*` + the `akida_pcie` driver) + Docker.
+Run on the host with the Akida cards (`/dev/akd1500_*` and/or `/dev/akida*` + the `akida-pcie`
+driver) + Docker. The launcher prefers AKD1500 chips, falling back to AKD1000/NSoC_v2.
 
 ```bash
 # 1. clone + fetch the LFS model/sample files
@@ -75,16 +76,17 @@ docker exec symphony-master /opt/akida-shard-client/run_client.sh --count 200
 The app uses `yolo_akidanet_voc` (VOC car/person YOLO akidanet): input 224×224×3, output 7×7×35
 (5 anchors × (5 box + 2 classes)). It ships as a hardware-runnable Akida model —
 `models/yolo_akidanet_voc.fbz` (Git LFS) + `models/yolo_akidanet_voc_meta.json` (input/sample
-shapes, map mode `AllNps`, anchors, class names). Each inference instance maps it `hw_only` on its
-AKD1000. The model is surfaced only by this app's dashboard via `SHARD_MODELS` in
-`src/common/models.py` (kept out of the classifier apps' `SHOWN_MODELS`).
+shapes, map mode `HwPr`, anchors, class names). Each inference instance maps it `hw_only`
+(map mode 2 = `HwPr`) on its AKD1500 chip. The model is surfaced only by this app's dashboard via
+`SHARD_MODELS` in `src/common/models.py` (kept out of the classifier apps' `SHOWN_MODELS`).
 </details>
 
 <details>
 <summary><b>How it works</b></summary>
 
 - `launch/up.sh image-shard-inference` launches one master + one compute container per **healthy**
-  chip, seeds `models/` and the sample `.bin`, then registers the three SOAM services:
+  chip (AKD1500 preferred, one chip pinned per container), seeds `models/` and the sample `.bin`,
+  then registers the three SOAM services:
   `ShardInferenceService` (one instance per chip, `select(!mg)` + `EqualFreeSlot`), and
   `ShardSegmentService` / `ShardStitchService` (CPU, on the management host, `select(mg)`).
 - The client (`shard_client.py`, in the master) streams images through the three stages as a
@@ -125,6 +127,6 @@ resolution at roughly the cost of one 224 inference.
   on `mg`, edit `service/*/Shard{Segment,Stitch}Service.xml` to `resReq="select(!mg)"` +
   `resourceGroupName="ComputeHosts"` (they'll co-locate with inference; CPU contention is
   negligible since inference is on-chip), rebuild, relaunch.
-- **Chip stuck (DMA timeout):** `sudo modprobe -r akida_pcie && sudo modprobe akida_pcie`, relaunch.
+- **Chip stuck (DMA timeout):** `sudo modprobe -r akida-pcie && sudo modprobe akida-pcie`, relaunch.
 - **Fewer nodes than chips:** CE caps the cluster at 64 cores → master + 7 compute; extra chips idle.
 </details>
