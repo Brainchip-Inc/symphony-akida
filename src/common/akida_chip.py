@@ -75,11 +75,13 @@ def _classes(path, n):
 def _map_mode(path):
     """Per-model MapMode name from the meta sidecar (default AllNps).
 
-    AllNps spreads each layer across all NPs for max parallelism, but for a
-    high-sparsity model (e.g. the sparse kws net) some NP partitions can receive
-    all-zero activity on certain inputs, which the hardware's output accounting
-    mishandles -> a 5s fetch-timeout. Such models set "map_mode": "Minimal" to
-    keep the mapping compact and avoid it.
+    Read from each model's meta ("map_mode"). The demo models use "HwPr" (hardware
+    pipeline), verified to map hw_only and run cleanly (incl. sparse/all-zero inputs)
+    on AKD1500. Other options: "AllNps" spreads each layer across all NPs for max
+    parallelism, but for a high-sparsity model some NP partitions can receive all-zero
+    activity on certain inputs, which the hardware's output accounting mishandles ->
+    a 5s fetch-timeout; "Minimal" keeps the mapping compact and avoids that. Pick
+    whichever a given model needs in its meta.
     """
     base = path[:-4]
     for suf in ("_meta.json", "_params.json", ".json"):
