@@ -13,9 +13,9 @@ import os
 SHOWN_MODELS = ["kws_keyword_spotting_sparse", "vww_person_detect"]
 
 # Models surfaced by the image-shard-inference app only. Kept OUT of SHOWN_MODELS on
-# purpose: yolo_akidanet_voc is a detector, so it would be meaningless (an argmax "class")
+# purpose: tiled_yolov2_voc is a detector, so it would be meaningless (an argmax "class")
 # in the two classifier dashboards. Its own dashboard uses this separate allowlist.
-SHARD_MODELS = ["yolo_akidanet_voc"]
+SHARD_MODELS = ["tiled_yolov2_voc"]
 
 
 def _stem(name):
