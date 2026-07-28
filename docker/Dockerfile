@@ -6,6 +6,14 @@
 # layer our own entrypoint and (from Section 3) our SOAM service.
 FROM ghcr.io/brainchip-inc/symphony-akida:7.3.4
 
+# models/tiled_yolov2_voc.fbz was serialized by akida 2.19.2, and 2.19.1 refuses to
+# deserialize it outright ("A model created with Akida 2.19.2 is not supported by
+# Akida 2.19.1"), so upgrade the runtime in place. The venv was built elsewhere and its
+# bin/ shebangs point at a path that does not exist here, hence pip via /opt/python3.12
+# with an explicit --target. Drop this layer once the base image ships 2.19.2.
+RUN /opt/python3.12/bin/python3.12 -m pip install --no-cache-dir --upgrade \
+        --target=/opt/akida-venv/lib/python3.12/site-packages akida==2.19.2
+
 # Remove the baked-in demo service; ours is owned by this repo.
 RUN rm -rf /opt/akida-service
 
