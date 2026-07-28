@@ -58,7 +58,9 @@ rm -rf "$HERE/.cluster"
 
 # --- seed models ------------------------------------------------------------
 mkdir -p "$SHARED/models"
-mkdir -p "$SHARED/pipeline"     # image-shard-inference: per-image segment/grid bus (/shared/pipeline)
+mkdir -p "$SHARED/pipeline" && chmod 777 "$SHARED/pipeline"  # image-shard-inference: per-image segment/grid
+                                # bus (/shared/pipeline); world-writable so the container's egoadmin (uid
+                                # 1000) can create per-image dirs regardless of the host user launching up.sh
 ls "$MODELS_SRC"/*.fbz >/dev/null 2>&1 || { echo "No models in $MODELS_SRC (*.fbz). Run 'git lfs pull' first." >&2; exit 1; }
 cp "$MODELS_SRC"/*.fbz "$MODELS_SRC"/*.json "$SHARED/models/" 2>/dev/null || true
 log "seeded models: $(ls "$SHARED/models" | grep '\.fbz$' | tr '\n' ' ')"
