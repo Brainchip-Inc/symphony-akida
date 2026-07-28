@@ -175,13 +175,16 @@ class Chip:
                 "cls_name": self.classes[cls] if cls < len(self.classes) else str(cls),
                 "inference_us": us, "host": HOST, "device": self.desc, "model": self.stem}
 
-    def forward_raw(self, arr):
-        """Like infer(), but return the RAW output tensor instead of an argmax class.
+    def predict_tile(self, arr):
+        """Like infer(), but return the model's float output tensor instead of an argmax class.
 
-        Detectors (e.g. yolo_akidanet_voc) have no single "class" -- the meaningful result
-        is the full output grid, decoded downstream. The image-shard-inference app's stitch
-        stage needs these raw potentials, so this returns them flat (C-order) plus the
-        per-sample output shape. inputs/timing/identity fields mirror infer().
+        A detector has no single "class" -- the meaningful result is the whole output grid,
+        decoded downstream by the caller. Returns (output, inference_us, identity dict).
+
+        Uses model.predict(), NOT model.forward(). predict rescales the integer potentials
+        back into the float range the decode expects; forward returns raw int32. The rescale
+        is per output channel -- on this detector the 125 channel scales span 554 to 28,029 --
+        so no single global constant can stand in for it, and the two calls cost the same.
         """
         if self.model is None:
             raise RuntimeError("no model mapped")
@@ -191,9 +194,7 @@ class Chip:
                              % (arr.size, self.n, list(self.ishape)))
         x = arr.reshape((1,) + tuple(self.ishape))
         t0 = time.perf_counter()
-        y = self.model.forward(x)
+        y = self.model.predict(x)
         us = int((time.perf_counter() - t0) * 1e6)
-        out = np.asarray(y)
-        oshape = [int(d) for d in out.shape[1:]] if out.ndim > 1 else [int(out.size)]
-        return {"output": out.reshape(-1).astype(int).tolist(), "output_shape": oshape,
-                "inference_us": us, "host": HOST, "device": self.desc, "model": self.stem}
+        return (np.asarray(y)[0], us,
+                {"host": HOST, "device": self.desc, "model": self.stem})

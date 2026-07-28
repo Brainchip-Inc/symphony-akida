@@ -47,7 +47,9 @@ RUN chmod +x /opt/akida-http/*.sh
 COPY src/apps/image-shard-inference/service/ /opt/akida-shard-service/
 RUN chmod +x /opt/akida-shard-service/*.sh && /opt/akida-shard-service/build_packages.sh
 COPY src/apps/image-shard-inference/client/ /opt/akida-shard-client/
-RUN chmod +x /opt/akida-shard-client/*.sh
+# The client speaks the same task wire format as the services, so it gets the same module.
+RUN chmod +x /opt/akida-shard-client/*.sh \
+    && cp /opt/akida-shard-service/shard_wire.py /opt/akida-shard-client/
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["--hold"]

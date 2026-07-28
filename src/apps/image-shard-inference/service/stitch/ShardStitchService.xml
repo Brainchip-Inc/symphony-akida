@@ -63,7 +63,7 @@
                 subDirectoryPattern="ShardStitchService/%sessionId%"
                 workDir="${SOAM_HOME}/work">
                 <env name="AKIDA_MODELS_DIR">/shared/models</env>
-                <env name="AKIDA_DEFAULT_MODEL">yolo_akidanet_voc</env>
+                <env name="AKIDA_DEFAULT_MODEL">tiled_yolov2_voc</env>
                 <env name="AKIDA_PIPELINE_DIR">/shared/pipeline</env>
             </osType>
         </osTypes>

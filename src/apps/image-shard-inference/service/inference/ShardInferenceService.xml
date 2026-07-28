@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!-- ShardInferenceService: one preStarted instance per compute Akida chip, running one
-     224x224x3 segment on-chip per task (hw_only). The SSM fans the 5 segments of each image
+     224x224x3 tile on-chip per task (hw_only). The SSM fans the six tiles of each frame
      across the instances. numOfSlotsForPreloadedServices is patched to the node count at
      registration; with EqualFreeSlot this places exactly one instance per chip.
      resReq="select(!mg)" keeps instances off the management host. -->
@@ -55,7 +55,7 @@
 
     <Service name="ShardInferenceService"
              packageName="ShardInferenceServicePackage.v1"
-             description="Shard pipeline: on-chip segment inference (map hw_only, forward_raw per task)">
+             description="Shard pipeline: on-chip tile inference (map hw_only, predict + decode per task)">
         <osTypes>
             <osType name="all"
                 startCmd="${SOAM_DEPLOY_DIR}/run_akida_service.sh ${SOAM_DEPLOY_DIR}/InferenceServiceContainer.py"
@@ -64,7 +64,7 @@
                 subDirectoryPattern="ShardInferenceService/%sessionId%"
                 workDir="${SOAM_HOME}/work">
                 <env name="AKIDA_MODELS_DIR">/shared/models</env>
-                <env name="AKIDA_DEFAULT_MODEL">yolo_akidanet_voc</env>
+                <env name="AKIDA_DEFAULT_MODEL">tiled_yolov2_voc</env>
                 <env name="AKIDA_PIPELINE_DIR">/shared/pipeline</env>
             </osType>
         </osTypes>
