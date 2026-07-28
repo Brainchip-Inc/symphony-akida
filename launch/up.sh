@@ -54,6 +54,7 @@ log "app=$APP: launching 1 master + $NODES compute node(s) on chips: ${CHIPS[*]}
 # --- clean slate ------------------------------------------------------------
 for c in $(docker ps -aq --filter "name=symphony-master" --filter "name=symphony-compute-"); do docker rm -f "$c" >/dev/null; done
 docker network rm "$NETWORK" >/dev/null 2>&1 || true
+"$HERE/launch/reclaim_shared.sh" "$HERE/.cluster/shared"
 rm -rf "$HERE/.cluster"
 
 # --- seed models ------------------------------------------------------------
