@@ -87,8 +87,15 @@ def read_dump(path):
     return records
 
 
-def score(kit, records, max_boxes):
-    """mAP of the run, and of the kit's own reference detections through the same code."""
+def score(kit, records, max_boxes, post_thresh=0.0):
+    """mAP of the run, and of the kit's own reference detections through the same code.
+
+    post_thresh gates the reference detections exactly as the run was gated. Without that the
+    two rows are not comparable: the reference carries every merged box, so a run with the demo
+    gate at 0.5 would look like a regression when it is only the gate doing its job. The
+    reference scores already have the truncated penalty applied, so the same threshold means
+    the same thing on both sides.
+    """
     num_classes = len(kit.labels)
     samples = sorted(records)
 
@@ -122,10 +129,14 @@ def score(kit, records, max_boxes):
     if kit.has_reference:
         def from_kit(sample):
             boxes, scores, labels, _ = kit.reference(sample)
-            return boxes, scores, labels
+            keep = np.asarray(scores) >= post_thresh
+            return np.asarray(boxes)[keep], np.asarray(scores)[keep], np.asarray(labels)[keep]
         result["reference"] = summarise(evaluate(*build(from_kit),
                                                 num_classes=num_classes)[0])
-    result["targets"] = kit.targets() if len(samples) == kit.count else None
+    # The published figures are defined on the whole split with no post-merge gate.
+    result["targets"] = (kit.targets() if len(samples) == kit.count and post_thresh <= 0
+                         else None)
+    result["post_thresh"] = post_thresh
     return result
 
 
@@ -177,7 +188,8 @@ def api_run():
             result["accuracy_error"] = "could not open %s: %s" % (dataset["source_npz"], exc)
     if kit is not None and records:
         try:
-            result["accuracy"] = score(kit, records, int(kit["max_boxes"]))
+            result["accuracy"] = score(kit, records, int(kit["max_boxes"]),
+                                       float(result.get("post_thresh") or 0.0))
         except Exception as exc:
             result["accuracy_error"] = "scoring failed: %s" % exc
 
@@ -373,6 +385,9 @@ function renderMap(a) {
     + `<td>${pct(a.reference.map75)}</td><td>${pct(a.reference.map)}</td></tr>`;
   if (a.targets) rows += `<tr class="tgt"><td>published</td><td>${pct(a.targets.map50)}</td>`
     + `<td>${pct(a.targets.map75)}</td><td>${pct(a.targets.map)}</td></tr>`;
+  else rows += `<tr class="tgt"><td colspan="4" style="text-align:left;padding-top:9px">`
+    + `The published figure is defined on the whole 4,952-frame split with the post-merge gate `
+    + `at 0; run it that way to compare against it.</td></tr>`;
   document.getElementById('maptable').innerHTML = rows;
   let aside = '';
   if (a.reference) {

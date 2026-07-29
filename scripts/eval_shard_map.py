@@ -117,6 +117,10 @@ def main():
     ap.add_argument("--npz", default=None, help="source test kit (default: from the sidecar)")
     ap.add_argument("--max-boxes", type=int, default=None,
                     help="detections per frame to score (default: the kit's own max_boxes)")
+    ap.add_argument("--post-thresh", type=float, default=0.0,
+                    help="gate the reference row the same way the run was gated, so the two "
+                         "rows stay comparable. Match whatever --post-thresh the client used; "
+                         "the published figures assume 0")
     ap.add_argument("--per-class", action="store_true", help="also print per-class AP")
     ap.add_argument("--json", action="store_true", help="emit one JSON result line (dashboard)")
     args = ap.parse_args()
@@ -145,7 +149,11 @@ def main():
 
     def from_kit(sample):
         boxes, scores, labels, _truncated = kit.reference(sample)
-        return boxes, scores, labels
+        # The reference carries every merged box, so it has to be gated exactly as the run was
+        # or the two rows measure different things. Its scores already carry the truncated
+        # penalty, so the same threshold means the same thing on both sides.
+        keep = np.asarray(scores) >= args.post_thresh
+        return np.asarray(boxes)[keep], np.asarray(scores)[keep], np.asarray(labels)[keep]
 
     rows = {}
     per_threshold, per_class = evaluate(*collect(kit, samples, from_dump, max_boxes),
