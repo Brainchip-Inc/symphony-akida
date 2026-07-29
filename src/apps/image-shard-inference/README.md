@@ -129,17 +129,24 @@ The scorer prints three rows. **fleet** is what the chips produced; **reference*
 own stored detections scored by the same code; **published** is the recorded target. Read the
 fleet row against the reference row — both go through one scorer, so any drift in scoring moves
 them together and cannot be mistaken for a pipeline regression. (The reference row itself sits
-about 1e-4 above the published target; that offset is upstream of this repo, and
-`scripts/eval_shard_map.py` documents what was ruled out.)
+between 8e-5 and 1.6e-3 above the published target; that offset is upstream of this repo, and
+`scripts/eval_shard_map.py` records what was ruled out.)
 
-| metric | full-split target |
-|---|---|
-| mAP50 | 0.4914 |
-| mAP75 | 0.2112 |
-| mAP over IoU 0.50:0.95 | 0.2451 |
+Measured on this fleet, six AKD1500 chips, all 4,952 frames, `--post-thresh 0`:
 
-Only the full 4,952 frames reproduce those numbers; the 500-frame kit stores `-1.0` for them on
-purpose.
+| metric | fleet | reference detections | published target |
+|---|---|---|---|
+| mAP50 | **0.4915** | 0.4915 | 0.4914 |
+| mAP75 | **0.2128** | 0.2128 | 0.2112 |
+| mAP over IoU 0.50:0.95 | **0.2456** | 0.2456 | 0.2451 |
+
+The fleet column is **bit-identical to the reference detections on every one of the 4,952
+frames**. Only the full split reproduces these; the 500-frame kit stores `-1.0` for the targets
+on purpose.
+
+Match `--post-thresh` between the client and the scorer. The reference carries every merged
+box, so scoring a gated run against an ungated reference makes the gate look like a regression
+— at gate 0.5 the same run reads 0.5401 against 0.5672. Gate both and they agree exactly.
 </details>
 
 <details>
@@ -288,9 +295,19 @@ binary — the same path the vww/kws sets use.
 
 The client reports **frames/sec**, **chips used**, per-chip **tile distribution**, average
 on-chip latency per tile, and the fleet **speedup** vs one chip. A single chip runs a frame's six
-tiles serially (≈ 6 × tile latency); the fleet runs them in parallel across six chips, so
-full-frame throughput approaches a single chip's 224 throughput — higher effective resolution at
-roughly the cost of one 224 inference.
+tiles serially (≈ 6 × tile latency); the fleet runs them in parallel, so full-frame throughput
+approaches a single chip's 224 throughput — higher effective resolution at roughly the cost of
+one 224 inference.
+
+Measured on AKD1500, **73.4 ms per tile** on-chip plus 0.5 ms to decode it:
+
+| chips | frames/sec | vs one chip | of the theoretical ceiling |
+|---|---|---|---|
+| 1 (six tiles serially) | 2.27 | 1.0× | — |
+| 6 (one per tile) | **13.01** | 5.7× | 96% |
+| 7 (`--nodes all`, CE cap) | 14.83 | 6.5× | 92% |
+
+Tiles land evenly: over the full split the six chips took 4,944 to 4,957 tiles each.
 
 `max_boxes` is 10, the VOC evaluation protocol rather than a deployment choice. It binds on only
 12% of frames, but a crowded scene will hit it.
