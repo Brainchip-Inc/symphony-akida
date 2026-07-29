@@ -106,6 +106,11 @@ Symphony CE 64-core limit of master + 7 compute.
 [`data/voc/`](../../../data/voc/README.md), each named after its own file, and the dashboard
 offers all of them in one dropdown. Symlink your kits in there once and every launch picks them
 up; with none, the demo runs on random frames and says so.
+
+**Editing code.** `src/common/`, `service/` and `client/` are **baked into the image**, so a
+change there only takes effect after `docker build -f docker/Dockerfile -t symphony-akida-demo:local .`
+followed by a relaunch. The dashboard, `launch/` and `scripts/` run from the working tree and
+need neither.
 </details>
 
 <details>
