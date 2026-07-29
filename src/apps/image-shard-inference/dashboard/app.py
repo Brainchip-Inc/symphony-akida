@@ -6,8 +6,8 @@ per-chip tile fan-out, fleet throughput, and, when the sample set carries ground
 of what the six chips actually produced plus a gallery of the frames with their boxes drawn.
 
 Everything shown comes from the run: the client dumps its merged detections, this process
-scores them with the same code scripts/eval_shard_map.py uses, and draws them on the frames
-straight out of the test kit .npz.
+scores them with the same code scripts/eval_shard_map.py uses, and draws them on the very
+frames that were sent to the chips.
 
     uv run python src/apps/image-shard-inference/dashboard/app.py   # http://localhost:5001
 """
@@ -41,7 +41,7 @@ GALLERY = 9
 app = Flask(__name__)
 # The gallery is served frame by frame after a run, so the run's detections and the kit it came
 # from are held here rather than re-read per image request.
-STATE = {"records": {}, "kit": None, "class_names": [], "dataset": None}
+STATE = {"records": {}, "kit": None, "frames": None, "class_names": [], "dataset": None}
 STATE_LOCK = threading.Lock()
 
 
@@ -62,11 +62,26 @@ def list_datasets():
         source = side.get("source_npz") or ""
         out.append({"name": side.get("set") or os.path.basename(sidecar).split(".")[0],
                     "model": side["model"], "count": int(side.get("count", 0)),
+                    "input_shape": list(side.get("input_shape") or []),
                     "has_ground_truth": bool(side.get("has_ground_truth")),
                     "source_npz": source,
                     "is_random": not side.get("has_ground_truth")})
     out.sort(key=lambda d: (d["is_random"], -d["count"]))
     return out
+
+
+def open_frames(dataset):
+    """The frames the fleet was actually sent, memory mapped from the prepared .bin.
+
+    One source for every sample set: the .bin is what the client shipped, so the gallery draws
+    boxes on exactly the pixels they came from -- and it works for a set with no .npz behind it,
+    which is what keeps the random fallback set showing pictures rather than broken images.
+    """
+    path = os.path.join(SAMPLES_DIR, dataset["name"] + ".bin")
+    if not os.path.isfile(path) or len(dataset["input_shape"]) != 3:
+        return None
+    return np.memmap(path, dtype=np.uint8, mode="r",
+                     shape=(dataset["count"],) + tuple(dataset["input_shape"]))
 
 
 def find_dataset(name):
@@ -196,6 +211,7 @@ def api_run():
     with STATE_LOCK:
         STATE["records"] = records
         STATE["kit"] = kit
+        STATE["frames"] = open_frames(dataset)
         STATE["dataset"] = dataset["name"]
         STATE["class_names"] = (kit.labels if kit is not None
                                 else json.load(open(os.path.join(
@@ -212,23 +228,24 @@ def api_run():
 @app.route("/api/frame/<int:sample>.png")
 def api_frame(sample):
     with STATE_LOCK:
-        kit, records = STATE["kit"], STATE["records"]
+        kit, frames, records = STATE["kit"], STATE["frames"], STATE["records"]
         class_names = STATE["class_names"]
-    if kit is None:
+    if frames is None:
         return jsonify({"error": "no frames available for this sample set"}), 404
-    if sample >= kit.count:
+    if sample >= len(frames):
         return jsonify({"error": "sample %d out of range" % sample}), 404
     record = records.get(sample, {})
     truth = None
-    if request.args.get("gt") == "1" and kit.has_ground_truth:
+    if request.args.get("gt") == "1" and kit is not None and kit.has_ground_truth:
         truth = kit.annotations(sample)
-    png = render(kit.frames[sample],
+    png = render(frames[sample],
                  np.asarray(record.get("boxes") or [], dtype=np.float64).reshape(-1, 4),
                  np.asarray(record.get("scores") or [], dtype=np.float64),
                  np.asarray(record.get("labels") or [], dtype=int),
                  class_names,
                  truncated=np.asarray(record.get("truncated") or [], dtype=bool),
-                 truth=truth, raw_shape=kit.raw_shapes[sample], scale=1)
+                 truth=truth,
+                 raw_shape=kit.raw_shapes[sample] if kit is not None else None, scale=1)
     return Response(png, mimetype="image/png",
                     headers={"Cache-Control": "no-store"})
 
