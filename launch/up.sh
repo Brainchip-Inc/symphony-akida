@@ -7,8 +7,12 @@
 #   --nodes    how many chips to use. Defaults to 6 for image-shard-inference, one per tile
 #              of a 448 frame, and to 'all' otherwise. Always capped at the CE 64-core limit
 #              (master + 7 compute), so 'all' on a bigger box leaves the extra chips idle.
-#   --dataset  image-shard-inference only: prepare this .npz as an extra sample set, for a
-#              test kit too large to live in the repo. The client then takes --samples <name>.
+#   --dataset  image-shard-inference only: one extra .npz kit from outside data/voc. Not needed
+#              for the usual case -- every kit in data/voc is prepared automatically.
+#
+# image-shard-inference sample sets: the committed random set always, plus every .npz found in
+# data/voc (symlink your test kits in there; see data/voc/README.md). All of them show up in the
+# dashboard's dropdown, and the client selects one with --samples <name>.
 #
 # One master + N compute, each owning one chip. All three apps share this cluster and the
 # image; the launcher activates exactly ONE backend per run (so only one process ever owns
@@ -48,6 +52,7 @@ IMAGE="${IMAGE:-symphony-akida-demo:local}"
 NETWORK="${NETWORK:-symcluster}"
 SHARED="$HERE/.cluster/shared"
 MODELS_SRC="$HERE/models"
+KITS_DIR="${AKIDA_KITS_DIR:-$HERE/data/voc}"   # test kits, symlinked in (data/voc/README.md)
 MAX_NODES="${MAX_NODES:-7}"          # CE 64-core cap: master + 7 compute = 64 cores
 CONSOLE_PORT="${CONSOLE_PORT:-8443}"
 PORT_BASE="${AKIDA_PORT_BASE:-8790}"      # serial-http: compute-j -> host port PORT_BASE+j
@@ -103,17 +108,26 @@ cp "$MODELS_SRC"/*.fbz "$MODELS_SRC"/*.json "$SHARED/models/" 2>/dev/null || tru
 log "seeded models: $(ls "$SHARED/models" | grep '\.fbz$' | tr '\n' ' ')"
 
 # --- seed sample sets (npz -> /shared/samples: <set>.bin + sidecar) ---------
-# Numpy-free clients read these; a model with no set falls back to random input.
+# Numpy-free clients read these; a model with no set falls back to random input. Two sources:
+# data/samples holds the small committed sets, so a fresh clone still demos; data/voc holds real
+# test kits, which are gigabytes and therefore symlinked in rather than committed. Every kit
+# found there becomes a sample set named after its own file, whatever that file is called.
 prep() { ( cd "$HERE" && uv run python src/common/prepare_samples.py "$@" ) 2>&1 | sed 's/^/    /'; }
-if ls "$HERE/data/samples"/*.npz >/dev/null 2>&1 || [ -n "$DATASET" ]; then
+have_npz() { ls "$1"/*.npz >/dev/null 2>&1; }
+if have_npz "$HERE/data/samples" || have_npz "$KITS_DIR" || [ -n "$DATASET" ]; then
     if ! command -v uv >/dev/null 2>&1; then
         log "WARN: uv not found; skipping sample prep (clients will use random inputs)"
     else
         prep --out "$SHARED/samples" || log "WARN: sample prep failed; clients will use random inputs"
+        if [ "$APP" = image-shard-inference ] && have_npz "$KITS_DIR"; then
+            log "preparing test kits from $(basename "$KITS_DIR")/ (a minute for the full split)"
+            prep --kits "$KITS_DIR" --out "$SHARED/samples" \
+                || log "WARN: test kit prep failed; the demo will run on random input"
+        fi
         if [ -n "$DATASET" ]; then
             [ -f "$DATASET" ] || { echo "no such dataset: $DATASET" >&2; exit 1; }
-            log "preparing test kit $(basename "$DATASET") (this can take a minute for the full split)"
-            prep --npz "$DATASET" --model tiled_yolov2_voc --out "$SHARED/samples" \
+            log "preparing test kit $(basename "$DATASET")"
+            prep --npz "$DATASET" --out "$SHARED/samples" \
                 || { echo "dataset prep failed" >&2; exit 1; }
         fi
         log "seeded sample sets: $(ls "$SHARED/samples" 2>/dev/null | grep '\.bin$' | sed 's/\.bin$//' | tr '\n' ' ')"
@@ -206,15 +220,25 @@ elif [ "$APP" = "image-shard-inference" ]; then
     log "    uv run python src/apps/image-shard-inference/dashboard/app.py   # http://localhost:5001"
     log "or drive it from the CLI:"
     log "    docker exec symphony-master /opt/akida-shard-client/run_client.sh --count 200"
-    if [ -n "$DATASET" ]; then
-        set_name="$(basename "$DATASET" .npz)"
+    # The scoring hint names the biggest set that carries ground truth, however it got prepared.
+    best_set=""; best_n=0
+    for side in "$SHARED"/samples/*.samples.json; do
+        [ -f "$side" ] || continue
+        grep -q '"has_ground_truth": *true' "$side" || continue
+        n=$(sed -n 's/.*"count": *\([0-9]*\).*/\1/p' "$side")
+        [ "${n:-0}" -gt "$best_n" ] && { best_n="$n"; best_set="$(basename "$side" .samples.json)"; }
+    done
+    if [ -n "$best_set" ]; then
         # --ordered so frame i is sample i, and --post-thresh 0 because the published mAP is
         # measured with no post-merge gate.
-        n_frames=$(sed -n 's/.*"count": *\([0-9]*\).*/\1/p' "$SHARED/samples/$set_name.samples.json")
-        log "score the prepared test kit end to end:"
+        log "or score a real test kit end to end:"
         log "    docker exec symphony-master /opt/akida-shard-client/run_client.sh \\"
-        log "        --samples $set_name --count ${n_frames:-500} --ordered --post-thresh 0 --dump"
+        log "        --samples $best_set --count $best_n --ordered --post-thresh 0 --dump"
         log "    uv run python scripts/eval_shard_map.py"
+    else
+        log "NOTE: no test kit found, so the only sample set is random input -- every stage and"
+        log "      every throughput number is exercised, but there is nothing to detect and no"
+        log "      mAP. Symlink a kit into data/voc/ and relaunch (see data/voc/README.md)."
     fi
 else
     # serial-http-round-robin: each compute already started its HTTP server (START_HTTP=1).

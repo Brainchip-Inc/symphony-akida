@@ -24,7 +24,7 @@ both rows.
 
     uv run python scripts/eval_shard_map.py
     uv run python scripts/eval_shard_map.py --dump .cluster/shared/results/<run>.jsonl \\
-        --npz ~/data/voc/VOCdevkit/voc2007_test_r448.npz
+        --npz data/voc/voc2007_test_r448.npz
 """
 import argparse
 import glob

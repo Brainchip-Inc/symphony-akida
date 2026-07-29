@@ -54,7 +54,7 @@ bring the other up:
 docker/     image (FROM the Symphony+Akida base) + entrypoint; bakes both app backends
 launch/     up.sh <app> [--nodes N|all] [--dataset <npz>] / down.sh
 models/     on-chip .fbz models + anchors (Git LFS)
-data/       sample .npz sets (Git LFS)
+data/       samples/ committed .npz sets (Git LFS); voc/ test kits symlinked in, never committed
 scripts/    sample generation, reference verification, mAP scoring
 src/
   common/   shared code: akida_chip (on-chip core), tiled_shard (tile geometry, decode and

@@ -69,10 +69,14 @@ uv sync
 # 3. build the image (bakes all three app backends)
 docker build -f docker/Dockerfile -t symphony-akida-demo:local .
 
-# 4. launch the cluster on six chips — one per tile
+# 4. optional: symlink any VOC test kits you have, for real frames and mAP
+#    (skip it and the demo runs on the committed random set instead)
+ln -s ~/data/voc/VOCdevkit/voc2007_test_r448*.npz data/voc/
+
+# 5. launch the cluster on six chips — one per tile
 ./launch/up.sh image-shard-inference --nodes 6
 
-# 5. open the dashboard, pick a sample set, Run
+# 6. open the dashboard, pick a sample set, Run
 uv run python src/apps/image-shard-inference/dashboard/app.py
 #   then browse http://localhost:5001
 ```
@@ -97,6 +101,11 @@ docker exec symphony-master /opt/akida-shard-client/run_client.sh --count 200
 
 `--nodes` defaults to **6** for this app (one chip per tile) and is always capped at the
 Symphony CE 64-core limit of master + 7 compute.
+
+**Sample sets.** The launcher prepares the committed random set plus every `.npz` it finds in
+[`data/voc/`](../../../data/voc/README.md), each named after its own file, and the dashboard
+offers all of them in one dropdown. Symlink your kits in there once and every launch picks them
+up; with none, the demo runs on random frames and says so.
 </details>
 
 <details>
@@ -107,20 +116,24 @@ ground truth. It ships as a self-contained `.npz` test kit holding the 448 frame
 truth, the model configuration *and* the reference detections of this exact model, so nothing
 else is needed: no tfds, no VOC download, no `akida_models`.
 
-The kit lives outside the repo because the full split is 2.8 GiB. Point the launcher at it:
+The kits live outside the repo because the full split is 2.8 GiB. Symlink them into `data/voc/`
+and every launch offers them, under whatever name the file has:
 
 ```bash
-./launch/up.sh image-shard-inference --nodes 6 \
-    --dataset ~/data/voc/VOCdevkit/voc2007_test_r448_first500.npz     # 500 frames, quick
-./launch/up.sh image-shard-inference --nodes 6 \
-    --dataset ~/data/voc/VOCdevkit/voc2007_test_r448.npz              # 4,952 frames, the published figure
+ln -s ~/data/voc/VOCdevkit/voc2007_test_r448_first500.npz data/voc/   # 500 frames, quick
+ln -s ~/data/voc/VOCdevkit/voc2007_test_r448.npz          data/voc/   # 4,952, the published figure
+./launch/up.sh image-shard-inference --nodes 6
 
-# run it and dump the merged detections (--post-thresh 0 = the reference protocol)
+# run one and dump the merged detections (--post-thresh 0 = the reference protocol)
 docker exec symphony-master /opt/akida-shard-client/run_client.sh \
     --samples voc2007_test_r448 --count 4952 --ordered --post-thresh 0 --dump
 
 uv run python scripts/eval_shard_map.py --per-class
 ```
+
+`up.sh --dataset <npz>` still prepares a one-off kit from anywhere else. Either way the model is
+matched to the frames by input shape, so nothing has to be named or configured; a file that fits
+no model is reported and skipped rather than failing the launch.
 
 `--ordered` matters: it makes frame *i* be sample *i*, which is what lets a dump be paired with
 ground truth. The dashboard passes it automatically.
@@ -159,8 +172,8 @@ surfacing later as a vague point or two of mAP — and if it passes on every fra
 identical to the published one by construction.
 
 ```bash
-scripts/verify_reference.sh --frames 500                                   # quick kit
-scripts/verify_reference.sh --npz ~/data/.../voc2007_test_r448.npz --frames all
+scripts/verify_reference.sh --frames 500                        # smallest kit in data/voc
+scripts/verify_reference.sh --npz data/voc/voc2007_test_r448.npz --frames all
 ```
 
 It also cross-checks `models/tiled_yolov2_voc_meta.json` against the configuration stored inside

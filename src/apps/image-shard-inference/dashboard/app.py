@@ -342,7 +342,8 @@ async function loadDatasets() {
     return;
   }
   sel.innerHTML = d.datasets.map(s =>
-    `<option value="${s.name}" data-count="${s.count}" data-random="${s.is_random}" data-gt="${s.has_ground_truth}">`
+    `<option value="${s.name}" data-count="${s.count}" data-random="${s.is_random}"`
+    + ` data-gt="${s.has_ground_truth}" data-source="${s.source_npz}">`
     + `${s.name} — ${s.count.toLocaleString()} frames${s.has_ground_truth ? ' (with ground truth)' : ''}</option>`).join('');
   sel.onchange = onDataset; onDataset();
 }
@@ -350,17 +351,19 @@ function onDataset() {
   const opt = document.getElementById('dataset').selectedOptions[0];
   if (!opt) return;
   const total = +opt.dataset.count, isRandom = opt.dataset.random === 'true';
+  const source = (opt.dataset.source || '').split('/').pop();
   const count = document.getElementById('count');
   count.max = total; if (+count.value > total) count.value = total;
   document.getElementById('banner').innerHTML = isRandom
     ? `<div class="note warn"><b>Random input.</b> This set is uniform 448 noise, so it contains
        no objects: an empty or near-empty result is the <i>correct</i> one, and accuracy is not
        evaluated. It exercises every stage and every throughput number. For detections and mAP,
-       relaunch with a real test kit:
-       <code>./launch/up.sh image-shard-inference --nodes 6 --dataset &lt;voc2007_test_r448.npz&gt;</code></div>`
-    : `<div class="note"><b>${total.toLocaleString()} real frames with ground truth.</b>
-       mAP is measured on exactly the frames you run. The published figure is defined on the whole
-       4,952-frame split and with the post-merge gate at 0, which is how the reference measures it.</div>`;
+       symlink a test kit into <code>data/voc/</code> and relaunch; every kit found there is
+       offered above. See <code>data/voc/README.md</code>.</div>`
+    : `<div class="note"><b>${total.toLocaleString()} real frames with ground truth</b>
+       ${source ? 'from <code>'+source+'</code>' : ''}. mAP is measured on exactly the frames you
+       run. The published figure is defined on the whole 4,952-frame split and with the post-merge
+       gate at 0, which is how the reference measures it.</div>`;
 }
 function bars(el, entries, unit) {
   const max = Math.max(1, ...entries.map(e => e[1]));
