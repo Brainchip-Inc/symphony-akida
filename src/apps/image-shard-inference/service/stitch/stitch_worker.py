@@ -75,9 +75,13 @@ class Stitcher:
         for label in labels:
             name = names[label]
             histogram[name] = histogram.get(name, 0) + 1
+        # Full float32 precision, not rounded. float32 -> float64 is exact and JSON round-trips
+        # it exactly, whereas rounding to six decimals shifts coordinates by up to 5e-7. That is
+        # invisible on screen but it is enough to flip a borderline IoU match, which shows up as
+        # a few 1e-5 of mAP against the reference and makes an exact comparison impossible.
         return {"ok": True,
-                "boxes": np.round(boxes, 6).tolist(),
-                "scores": np.round(scores, 6).tolist(),
+                "boxes": boxes.astype(float).tolist(),
+                "scores": scores.astype(float).tolist(),
                 "labels": labels.tolist(),
                 "truncated": truncated.tolist(),
                 "class_hist": histogram}

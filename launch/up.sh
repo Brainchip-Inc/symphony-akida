@@ -180,10 +180,15 @@ elif [ "$APP" = "image-shard-inference" ]; then
     log "registering + enabling the 3 shard services (segment=mgmt, inference=1/chip, stitch=mgmt)"
     docker exec symphony-master /opt/akida-shard-service/register.sh "$NODES" 2>&1 | sed 's/^/    /'
 
+    # Count distinct HOSTS with a ready worker, not log files. register.sh bounces the app to
+    # re-place its instances under EqualFreeSlot, so the pre-bounce round leaves behind logs
+    # from instances that already exited -- counting files would satisfy the wait while the
+    # real instances are still coming up.
+    ready_hosts() { grep -l "worker READY" "$1"/*.log 2>/dev/null \
+        | sed -E 's|.*/[a-z]+-||; s|-[0-9]+\.log$||' | sort -u | wc -l; }
     log "waiting for $NODES inference instance(s) to map on-chip..."
     for i in $(seq 1 40); do
-        n=$(grep -l "worker READY" "$SHARED"/soam/shard-inference/logs/si-*.log 2>/dev/null | wc -l) || true
-        [ "${n:-0}" -ge "$NODES" ] && break
+        [ "$(ready_hosts "$SHARED/soam/shard-inference/logs")" -ge "$NODES" ] && break
         sleep 3
     done
     log "waiting for the segment + stitch instance(s)..."
