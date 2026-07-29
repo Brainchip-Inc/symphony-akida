@@ -175,7 +175,10 @@ def main():
 
     dump_path = None
     if args.dump is not None:
-        dump_path = args.dump or os.path.join(RESULTS_DIR, "%s_%s.jsonl" % (args.model, run_id))
+        # Named after the sample SET, not the model: the scorer pairs a dump with the test kit
+        # it came from, and several sets feed the same model.
+        dump_path = args.dump or os.path.join(
+            RESULTS_DIR, "%s_%s.jsonl" % (args.samples or args.model, run_id))
         try:
             os.makedirs(os.path.dirname(dump_path))
         except OSError:

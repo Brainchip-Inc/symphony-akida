@@ -51,14 +51,30 @@ def newest_dump():
     return dumps[-1]
 
 
-def find_source_npz(dump_path):
-    """The .npz a dump was produced from, via the sample set sidecars the launcher wrote."""
+def find_source_npz(dump_path, needed_frames):
+    """The .npz a dump was produced from, via the sample set sidecars the launcher wrote.
+
+    The client names a dump after its sample set, so the set name is the basename's prefix.
+    Falling back to "any kit with ground truth" would silently pick the wrong one when both the
+    500-frame and the full split are prepared, so the fallback also has to be big enough to
+    contain every sample the dump references.
+    """
+    basename = os.path.basename(dump_path)
+    candidates = []
     for sidecar in glob.glob(os.path.join(SAMPLES_DIR, "*.samples.json")):
         side = json.load(open(sidecar))
-        if side.get("has_ground_truth") and os.path.isfile(side.get("source_npz") or ""):
-            return side["source_npz"]
-    raise SystemExit("could not find a prepared sample set with ground truth; pass --npz "
-                     "(dump was %s)" % dump_path)
+        if not side.get("has_ground_truth") or not os.path.isfile(side.get("source_npz") or ""):
+            continue
+        name = side.get("set") or ""
+        candidates.append((basename.startswith(name + "_"), int(side.get("count", 0)),
+                           side["source_npz"]))
+    named = [c for c in candidates if c[0]]
+    big_enough = [c for c in candidates if c[1] >= needed_frames]
+    for pool in (named, big_enough):
+        if pool:
+            return min(pool, key=lambda c: c[1])[2]
+    raise SystemExit("could not find a prepared sample set with ground truth covering %d "
+                     "frames; pass --npz (dump was %s)" % (needed_frames, dump_path))
 
 
 def read_dump(path):
@@ -106,12 +122,12 @@ def main():
     args = ap.parse_args()
 
     dump_path = args.dump or newest_dump()
-    kit = TestKit(args.npz or find_source_npz(dump_path))
+    records = read_dump(dump_path)
+    samples = sorted(records)
+    kit = TestKit(args.npz or find_source_npz(dump_path, samples[-1] + 1))
     if not kit.has_ground_truth:
         raise SystemExit("%s carries no ground truth" % kit.path)
     max_boxes = args.max_boxes or int(kit["max_boxes"])
-    records = read_dump(dump_path)
-    samples = sorted(records)
     log_to = sys.stderr if args.json else sys.stdout
 
     if max(samples) >= kit.count:
