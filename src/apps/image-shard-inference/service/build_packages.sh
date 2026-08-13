@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build the three SOAM deploy packages for the shard pipeline (segment / inference / stitch).
 # Each is tarred with NO leading directory (SOAM extracts straight into the deploy dir), so the
-# containers can `import shard_common` / find inference_worker.py as co-located files.
+# containers can `import shard_wire` / find inference_worker.py as co-located files.
 #
 #   Output: ${DEST:-<this dir>}/Shard{Segment,Inference,Stitch}ServicePackage.v1.tar.gz
 set -euo pipefail
