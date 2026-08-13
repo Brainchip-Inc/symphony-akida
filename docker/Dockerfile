@@ -6,6 +6,14 @@
 # layer our own entrypoint and (from Section 3) our SOAM service.
 FROM ghcr.io/brainchip-inc/symphony-akida:7.3.4
 
+# models/tiled_yolov2_voc.fbz was serialized by akida 2.19.2, and 2.19.1 refuses to
+# deserialize it outright ("A model created with Akida 2.19.2 is not supported by
+# Akida 2.19.1"), so upgrade the runtime in place. The venv was built elsewhere and its
+# bin/ shebangs point at a path that does not exist here, hence pip via /opt/python3.12
+# with an explicit --target. Drop this layer once the base image ships 2.19.2.
+RUN /opt/python3.12/bin/python3.12 -m pip install --no-cache-dir --upgrade \
+        --target=/opt/akida-venv/lib/python3.12/site-packages akida==2.19.2
+
 # Remove the baked-in demo service; ours is owned by this repo.
 RUN rm -rf /opt/akida-service
 
@@ -39,7 +47,9 @@ RUN chmod +x /opt/akida-http/*.sh
 COPY src/apps/image-shard-inference/service/ /opt/akida-shard-service/
 RUN chmod +x /opt/akida-shard-service/*.sh && /opt/akida-shard-service/build_packages.sh
 COPY src/apps/image-shard-inference/client/ /opt/akida-shard-client/
-RUN chmod +x /opt/akida-shard-client/*.sh
+# The client speaks the same task wire format as the services, so it gets the same module.
+RUN chmod +x /opt/akida-shard-client/*.sh \
+    && cp /opt/akida-shard-service/shard_wire.py /opt/akida-shard-client/
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["--hold"]

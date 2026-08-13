@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!-- ShardSegmentService: CPU-only preStarted instances on the MANAGEMENT host. Each task is a
-     full 448x448x3 image; the instance splits it into 5 x 224x224x3 segments onto the shared
+     full 448x448x3 frame; the instance splits it into six 224x224x3 tiles onto the shared
      pipeline bus. numOfSlotsForPreloadedServices is patched at registration; resReq="select(mg)"
      keeps these off the Akida compute chips (they need no hardware). -->
 <Profile xmlns="http://www.platform.com/Symphony/Profile/Application"
@@ -54,7 +54,7 @@
 
     <Service name="ShardSegmentService"
              packageName="ShardSegmentServicePackage.v1"
-             description="Shard pipeline: split a 448 image into 5 x 224 segments (CPU)">
+             description="Shard pipeline: split a 448 frame into six 224 tiles (CPU)">
         <osTypes>
             <osType name="all"
                 startCmd="${SOAM_DEPLOY_DIR}/run_cpu_service.sh ${SOAM_DEPLOY_DIR}/SegmentServiceContainer.py"
@@ -62,6 +62,7 @@
                 logDirectory="${SOAM_HOME}/work"
                 subDirectoryPattern="ShardSegmentService/%sessionId%"
                 workDir="${SOAM_HOME}/work">
+                <env name="AKIDA_MODELS_DIR">/shared/models</env>
                 <env name="AKIDA_PIPELINE_DIR">/shared/pipeline</env>
             </osType>
         </osTypes>

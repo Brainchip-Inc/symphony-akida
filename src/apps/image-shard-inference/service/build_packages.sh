@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build the three SOAM deploy packages for the shard pipeline (segment / inference / stitch).
 # Each is tarred with NO leading directory (SOAM extracts straight into the deploy dir), so the
-# containers can `import shard_common` / find inference_worker.py as co-located files.
+# containers can `import shard_wire` / find inference_worker.py as co-located files.
 #
 #   Output: ${DEST:-<this dir>}/Shard{Segment,Inference,Stitch}ServicePackage.v1.tar.gz
 set -euo pipefail
@@ -21,11 +21,13 @@ pack() {  # <out-name> <file...>
 }
 
 pack ShardSegmentServicePackage.v1.tar.gz \
-    "$HERE/run_cpu_service.sh" "$HERE/shard_common.py" "$HERE/segment/SegmentServiceContainer.py"
+    "$HERE/run_cpu_service.sh" "$HERE/shard_wire.py" \
+    "$HERE/segment/SegmentServiceContainer.py" "$HERE/segment/segment_worker.py"
 
 pack ShardInferenceServicePackage.v1.tar.gz \
-    "$HERE/run_akida_service.sh" "$HERE/inference/InferenceServiceContainer.py" \
-    "$HERE/inference/inference_worker.py"
+    "$HERE/run_akida_service.sh" "$HERE/shard_wire.py" \
+    "$HERE/inference/InferenceServiceContainer.py" "$HERE/inference/inference_worker.py"
 
 pack ShardStitchServicePackage.v1.tar.gz \
-    "$HERE/run_cpu_service.sh" "$HERE/shard_common.py" "$HERE/stitch/StitchServiceContainer.py"
+    "$HERE/run_cpu_service.sh" "$HERE/shard_wire.py" \
+    "$HERE/stitch/StitchServiceContainer.py" "$HERE/stitch/stitch_worker.py"

@@ -1,20 +1,23 @@
 """Python client for the Akida model service (runs on the laptop/host).
 
-The service runs as a SOAM SI on each Symphony compute node and exposes
-an HTTP API on a per-node port (compute-1 -> localhost:8791,
-compute-2 -> 8792, compute-3 -> 8793 when the standard CE cluster is up).
-This client talks to one node's endpoint for load/unload/reload/infer and
-can stage a local `.fbz` into the cluster's shared models directory so the
-worker can load it.
+The service runs as a SOAM SI on each Symphony compute node and exposes an
+HTTP API on a per-node port: `up.sh` publishes compute-j on host port 8790+j,
+so compute-0 -> localhost:8790, compute-1 -> 8791, and so on (override the
+base with AKIDA_PORT_BASE). This client talks to one node's endpoint for
+load/unload/reload/infer and can stage a local `.fbz` into the cluster's
+shared models directory so the worker can load it.
+
+`up.sh` already seeds every model in `models/` into that shared dir, so
+staging is only needed for an `.fbz` that does not live in the repo.
 
 Example
 -------
     from akida_client import AkidaServiceClient
-    c = AkidaServiceClient("http://localhost:8791")
-    c.stage_local_fbz("/home/kjohnson/akida-deepfake/models/voice_auth.fbz")
-    c.load("voice_auth")
+    c = AkidaServiceClient("http://localhost:8790")   # compute-0
+    c.stage_local_fbz("/path/to/your/model.fbz")      # only if not seeded
+    c.load("vww_person_detect")
     print(c.health())
-    print(c.infer([0]*25))      # 5x5x1 model
+    print(c.infer([0] * (96 * 96 * 3)))               # VWW input is 96x96x3
     c.unload()
 """
 from __future__ import annotations
@@ -24,10 +27,14 @@ import os
 import shutil
 import urllib.request
 
-DEFAULT_URL = os.environ.get("AKIDA_SERVICE_URL", "http://localhost:8791")
-# Host path that the compute containers bind-mount as /shared/models.
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
+
+DEFAULT_URL = os.environ.get("AKIDA_SERVICE_URL", "http://localhost:8790")
+# Host side of the repo-local shared dir the compute containers bind-mount as
+# /shared/models. Same env var and default as the dashboard, so the two agree.
 DEFAULT_SHARED_MODELS = os.environ.get(
-    "AKIDA_SHARED_MODELS", "/opt/symphony/shared/models")
+    "AKIDA_SHARED_MODELS", os.path.join(REPO, ".cluster", "shared", "models"))
 # Sidecars the worker reads for class names; staged alongside the .fbz.
 _SIDECAR_SUFFIXES = ("_meta.json", "_params.json", ".classes.json", ".json")
 

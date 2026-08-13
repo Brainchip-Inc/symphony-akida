@@ -21,12 +21,14 @@ DEPLOY_DIR="$(dirname "$1")"
 export AKIDA_WORKER_PY="$DEPLOY_DIR/inference_worker.py"
 export AKIDA_PYTHON="/opt/python3.12/bin/python3.12"
 export AKIDA_VENV_SITEPACKAGES="/opt/akida-venv/lib/python3.12/site-packages"
+export AKIDA_COMMON_DIR="${AKIDA_COMMON_DIR:-/opt/akida-common}"
 
 # Per-node settings (AKIDA_DEVICE_INDEX, AKIDA_SHM_BYTES) written by the entrypoint into this
 # app's dir; sourced here because SOAM does not inherit the container env.
 [ -f /opt/akida-shard-service/node.env ] && source /opt/akida-shard-service/node.env
 export AKIDA_SHM_BYTES="${AKIDA_SHM_BYTES:-8388608}"
 export AKIDA_PIPELINE_DIR="${AKIDA_PIPELINE_DIR:-/shared/pipeline}"
+export AKIDA_MODELS_DIR="${AKIDA_MODELS_DIR:-/shared/models}"
 
 LOGDIR="/shared/soam/shard-inference/logs"
 mkdir -p "$LOGDIR"

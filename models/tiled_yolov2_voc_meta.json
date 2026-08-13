@@ -1,0 +1,42 @@
+{
+  "model_name": "tiled_yolov2_voc",
+  "map_mode": "HwPr",
+  "input_shape": [224, 224, 3],
+  "sample_input_shape": [448, 448, 3],
+  "output_shape": [7, 7, 125],
+  "grid": [7, 7],
+  "num_anchors": 5,
+  "box_per_anchor": 25,
+  "num_classes": 20,
+  "class_names": [
+    "aeroplane", "bicycle", "bird", "boat", "bottle",
+    "bus", "car", "cat", "chair", "cow",
+    "diningtable", "dog", "horse", "motorbike", "person",
+    "pottedplant", "sheep", "sofa", "train", "tvmonitor"
+  ],
+  "anchors": [
+    [0.83968, 1.21119],
+    [1.66693, 2.92437],
+    [2.90171, 3.01865],
+    [4.39164, 5.43813],
+    [5.99989, 6.11417]
+  ],
+  "anchors_file": "tiled_yolov2_voc_anchors.pkl",
+  "frame_size": 448,
+  "tile_layout": "quadrants_center_global",
+  "obj_thresh": 0.5,
+  "nms_thresh": 0.5,
+  "post_merge_thresh": 0.5,
+  "max_boxes": 10,
+  "merge": {
+    "nms_iou": 0.5,
+    "ios_thresh": 0.7,
+    "seam_iou": 0.2,
+    "edge_eps": 0.05,
+    "fuse_seams": true,
+    "prefer_complete": true,
+    "only_truncated_victims": true,
+    "clip": true,
+    "truncated_penalty": 0.4
+  }
+}

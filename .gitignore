@@ -11,9 +11,13 @@ __pycache__/
 # Cluster runtime: repo-local shared dir + generated sample sets
 .cluster/
 
+# Test kits are gigabytes: symlinked or copied in, never committed (see data/voc/README.md)
+data/voc/*.npz
+
 # Local plans + tool state (never shipped)
 .plans/
 .claude/
+.workspace/
 
 # OS / editor
 .DS_Store
