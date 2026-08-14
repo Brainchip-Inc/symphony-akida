@@ -2,8 +2,15 @@
 .backup
 .venv
 .plans
+.workspace
+.ruff_cache
 .cluster
 **/__pycache__
 *.tar
 *.tar.gz
 uv.lock
+# Nothing is COPY'd from these: up.sh seeds models from the host into /shared, and
+# scripts/verify_reference.sh bind-mounts them. Excluding them keeps the build
+# context small. Remove the exclusion if you ever add a `COPY models/` layer.
+models
+data
