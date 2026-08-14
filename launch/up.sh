@@ -48,7 +48,7 @@ if [ -z "$WANT_NODES" ]; then
     [ "$APP" = image-shard-inference ] && WANT_NODES="${NODES:-6}" || WANT_NODES="${NODES:-all}"
 fi
 case "$WANT_NODES" in all|[1-9]|[1-9][0-9]) ;; *) echo "--nodes must be a positive number or 'all' (got '$WANT_NODES')" >&2; exit 1;; esac
-IMAGE="${IMAGE:-symphony-akida-demo:local}"
+IMAGE="${IMAGE:-symphony-akida}"
 NETWORK="${NETWORK:-symcluster}"
 SHARED="$HERE/.cluster/shared"
 MODELS_SRC="$HERE/models"
