@@ -3,7 +3,7 @@
 # AKD1500 first (preferred) then AKD1000 (NSoC_v2). Runs as the entrypoint of a
 # privileged throwaway container: it exposes each host chip in isolation (as slot 0
 # of its family in the container's private tmpfs /dev) and checks whether akida sees
-# it. launch/up.sh uses this to place nodes only on good chips and skip any with a
+# it. scripts/launch/up.sh uses this to place nodes only on good chips and skip any with a
 # stuck DMA.
 #
 # Two chip families with different /dev nodes:
@@ -25,7 +25,7 @@ add() {  # $1 = node basename, $2 = family (akd1500|akida)
     FAM[$b]="$2"
     order+=("$b")
 }
-# AKD1500 first (preferred), then AKD1000 -- launch/up.sh takes the first N in this order.
+# AKD1500 first (preferred), then AKD1000 -- scripts/launch/up.sh takes the first N in this order.
 for d in /dev/akd1500_*;   do [ -e "$d" ] && add "${d#/dev/}" akd1500; done
 for d in /dev/akida[0-9]*; do [ -e "$d" ] && add "${d#/dev/}" akida;   done
 

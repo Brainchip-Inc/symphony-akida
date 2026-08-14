@@ -26,7 +26,7 @@ docker build --build-arg ACCEPT_IBM_LICENSE=yes -f docker/Dockerfile -t symphony
 docker run --rm --entrypoint /usr/local/bin/verify-image symphony-akida --full
 
 # 4. launch the cluster — auto-sizes to healthy chips, capped at 7 (CE limit)
-./launch/up.sh
+./scripts/launch/up.sh
 
 # 5. open the dashboard, pick a model, set a sample count, Run
 FLASK_PORT=5001 uv run python src/apps/batch-inference/dashboard/app.py
@@ -40,13 +40,13 @@ Over SSH? Forward the port: `ssh -L 5001:localhost:5001 <user>@<host>` and open 
 <summary><b>Returning users (everything already installed)</b></summary>
 
 ```bash
-./launch/up.sh                                            # bring the fleet up
+./scripts/launch/up.sh                                            # bring the fleet up
 uv run python src/apps/batch-inference/dashboard/app.py   # http://localhost:5001
 
 # ...or drive it straight from the CLI (runs the SOAM client inside the master):
 docker exec symphony-master /opt/akida-client/run_client.sh --model kws_keyword_spotting_sparse --count 5000
 
-./launch/down.sh                                          # tear down + wipe .cluster/
+./scripts/launch/down.sh                                          # tear down + wipe .cluster/
 ```
 </details>
 
@@ -70,7 +70,7 @@ into `models/` and adding its stem to `SHOWN_MODELS` in `src/common/models.py`.
 <details>
 <summary><b>How it works</b></summary>
 
-- `launch/up.sh` probes each chip, launches one compute container per **healthy** chip
+- `scripts/launch/up.sh` probes each chip, launches one compute container per **healthy** chip
   (skips stuck ones), pins it to that chip, waits for all to join, then registers and
   enables the SOAM service one-instance-per-chip.
 - Each service instance maps the model on its chip with `hw_only=True`. **A node with no
@@ -99,7 +99,7 @@ uv run python src/common/prepare_samples.py --out .cluster/shared/samples
 <summary><b>Troubleshooting</b></summary>
 
 - **`No healthy Akida chips` / a chip is stuck** (DMA timeout): reset the driver, then relaunch —
-  `sudo modprobe -r akida_pcie && sudo modprobe akida_pcie && ./launch/up.sh`.
+  `sudo modprobe -r akida_pcie && sudo modprobe akida_pcie && ./scripts/launch/up.sh`.
 - **Fewer nodes than chips:** Community Edition caps the cluster at 64 cores → master + 7 compute.
   Extra chips are left idle (logged at launch).
 - **Console slow to first paint** (~3–6 min after first boot): expected on the bundled JRE.

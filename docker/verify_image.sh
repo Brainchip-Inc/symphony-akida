@@ -51,9 +51,9 @@ printf '[verify] mode=%s EGO_TOP=%s SYM_VERSION=%s\n' "$MODE" "$EGO_TOP" "$SYM_V
 # --- 1. platform assumptions the launcher relies on ------------------------
 # akida ships x86_64 wheels only and the harvested tree is linux-x86_64.
 chk "arch is x86_64" test "$(uname -m)" = x86_64
-# The image must run as root: LIM needs it, and launch/reclaim_shared.sh does
+# The image must run as root: LIM needs it, and scripts/launch/reclaim_shared.sh does
 # `docker run --entrypoint /usr/bin/chown` to hand /shared back to the host user
-# without sudo. A USER line in the Dockerfile would break launch/down.sh.
+# without sudo. A USER line in the Dockerfile would break scripts/launch/down.sh.
 chk "runs as uid 0 (no USER line)" test "$(id -u)" = 0
 chk "/usr/bin/chown exists (reclaim_shared.sh entrypoint)" test -x /usr/bin/chown
 chk "egoadmin is 1000:1000" test "$(id -u egoadmin):$(id -g egoadmin)" = "1000:1000"

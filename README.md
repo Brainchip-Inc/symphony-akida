@@ -58,13 +58,13 @@ Then open the app you want to run and follow its README. To switch demos, tear d
 bring the other up:
 
 ```bash
-./launch/down.sh && ./launch/up.sh <batch-inference|serial-http-round-robin|image-shard-inference>
+./scripts/launch/down.sh && ./scripts/launch/up.sh <batch-inference|serial-http-round-robin|image-shard-inference>
 ```
 
 `up.sh` takes `--nodes N|all` to choose how many chips to use — it defaults to 6 for
 `image-shard-inference`, one per tile of a 448 frame. Both launchers document themselves:
-`./launch/up.sh --help` lists the apps, flags and environment overrides, and
-`./launch/down.sh --help` explains what teardown removes.
+`./scripts/launch/up.sh --help` lists the apps, flags and environment overrides, and
+`./scripts/launch/down.sh --help` explains what teardown removes.
 </details>
 
 <details>
@@ -73,10 +73,10 @@ bring the other up:
 ```
 docker/     Dockerfile (public sources only) + entrypoint + the patch / PKI / verify
             scripts it runs at build time; bakes all three app backends
-launch/     up.sh <app> [--nodes N|all] [--dataset <npz>] / down.sh   (both take --help)
+scripts/    launch/  up.sh <app> [--nodes N|all] [--dataset <npz>] / down.sh, both --help
+            plus sample generation, reference verification, mAP scoring
 models/     on-chip .fbz models + anchors (Git LFS)
 data/       samples/ committed .npz sets (Git LFS); voc/ test kits symlinked in, never committed
-scripts/    sample generation, reference verification, mAP scoring
 src/
   common/   shared code: akida_chip (on-chip core), tiled_shard (tile geometry, decode and
             merge), detection_map (mAP), testkit (VOC test kit reader), draw_detections,

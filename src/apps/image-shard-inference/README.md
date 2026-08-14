@@ -74,7 +74,7 @@ docker build --build-arg ACCEPT_IBM_LICENSE=yes -f docker/Dockerfile -t symphony
 ln -s ~/data/voc/VOCdevkit/voc2007_test_r448*.npz data/voc/
 
 # 5. launch the cluster on six chips — one per tile
-./launch/up.sh image-shard-inference --nodes 6
+./scripts/launch/up.sh image-shard-inference --nodes 6
 
 # 6. open the dashboard, pick a sample set, Run
 uv run python src/apps/image-shard-inference/dashboard/app.py
@@ -89,14 +89,14 @@ Over SSH? Forward the port: `ssh -L 5001:localhost:5001 <user>@<host>` and open
 <summary><b>Returning users (everything already installed)</b></summary>
 
 ```bash
-./launch/up.sh image-shard-inference --nodes 6                     # six chips, one per tile
-./launch/up.sh image-shard-inference --nodes all                   # every healthy chip (CE caps at 7)
+./scripts/launch/up.sh image-shard-inference --nodes 6                     # six chips, one per tile
+./scripts/launch/up.sh image-shard-inference --nodes all                   # every healthy chip (CE caps at 7)
 uv run python src/apps/image-shard-inference/dashboard/app.py      # http://localhost:5001
 
 # ...or drive it straight from the CLI (runs the orchestrator client inside the master):
 docker exec symphony-master /opt/akida-shard-client/run_client.sh --count 200
 
-./launch/down.sh                                                   # tear down + wipe .cluster/
+./scripts/launch/down.sh                                                   # tear down + wipe .cluster/
 ```
 
 `--nodes` defaults to **6** for this app (one chip per tile) and is always capped at the
@@ -108,8 +108,8 @@ offers all of them in one dropdown. Symlink your kits in there once and every la
 up; with none, the demo runs on random frames and says so.
 
 **Editing code.** `src/common/`, `service/` and `client/` are **baked into the image**, so a
-change there only takes effect after a rebuild (step 3 above) followed by a relaunch. The dashboard, `launch/` and `scripts/` run from the working tree and
-need neither.
+change there only takes effect after a rebuild (step 3 above) followed by a relaunch. The
+dashboard and everything under `scripts/` run from the working tree and need neither.
 </details>
 
 <details>
@@ -126,7 +126,7 @@ and every launch offers them, under whatever name the file has:
 ```bash
 ln -s ~/data/voc/VOCdevkit/voc2007_test_r448_first500.npz data/voc/   # 500 frames, quick
 ln -s ~/data/voc/VOCdevkit/voc2007_test_r448.npz          data/voc/   # 4,952, the published figure
-./launch/up.sh image-shard-inference --nodes 6
+./scripts/launch/up.sh image-shard-inference --nodes 6
 
 # run one and dump the merged detections (--post-thresh 0 = the reference protocol)
 docker exec symphony-master /opt/akida-shard-client/run_client.sh \
@@ -264,7 +264,7 @@ concatenation for exactly that reason.
 <details>
 <summary><b>How it works</b></summary>
 
-- `launch/up.sh image-shard-inference --nodes 6` launches one master + one compute container per
+- `scripts/launch/up.sh image-shard-inference --nodes 6` launches one master + one compute container per
   chip (AKD1500 preferred, one chip pinned per container), seeds `models/`, prepares the sample
   sets, then registers the three SOAM services: `ShardInferenceService` (one instance per chip,
   `select(!mg)` + `EqualFreeSlot`) and `ShardSegmentService` / `ShardStitchService` (CPU, on the
@@ -299,7 +299,7 @@ correct one** and accuracy is not evaluated. The dashboard says so in a banner. 
 `uv run python scripts/make_shard_samples.py`.
 
 The **VOC2007 test kit** `.npz` files are the real thing; see *Measuring accuracy* above. Pass
-one to `./launch/up.sh --dataset <npz>` and it becomes a named sample set the client selects with
+one to `./scripts/launch/up.sh --dataset <npz>` and it becomes a named sample set the client selects with
 `--samples <name>`.
 
 Either way `src/common/prepare_samples.py` flattens the frames into

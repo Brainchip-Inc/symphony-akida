@@ -25,7 +25,7 @@
 #   /opt/akida-venv/lib/python3.12/site-packages{,/akida.libs}
 #   egoadmin = uid 1000 : gid 1000                 so /shared needs no host sudo
 #   runs as root                                   LIM needs it, and
-#                                                   launch/reclaim_shared.sh
+#                                                   scripts/launch/reclaim_shared.sh
 #                                                   invokes /usr/bin/chown
 
 # The IBM image is pinned by digest: it has not been rebuilt since 2021-12-08,
@@ -132,7 +132,7 @@ RUN dnf install -y --setopt=install_weak_deps=False --allowerasing \
 
 # uid AND gid 1000. IBM's own image uses 1000:0; we do not, because everything the
 # cluster writes into the bind-mounted /shared lands as 1000:1000 and
-# launch/reclaim_shared.sh chowns it back to the host user without sudo.
+# scripts/launch/reclaim_shared.sh chowns it back to the host user without sudo.
 RUN groupadd -g 1000 egoadmin \
     && useradd -m -u 1000 -g 1000 -s /bin/bash egoadmin
 
@@ -261,7 +261,7 @@ RUN chmod +x /opt/akida-http/*.sh
 
 # App 3 (image-shard-inference) three SOAM services -- segment (CPU) + inference (python3.6
 # container + python3.12 akida worker, reusing /opt/akida-common) + stitch (CPU) -- prebuilt
-# into three deploy packages that launch/up.sh registers, plus the thin orchestrator client
+# into three deploy packages that scripts/launch/up.sh registers, plus the thin orchestrator client
 # run from the master.
 COPY src/apps/image-shard-inference/service/ /opt/akida-shard-service/
 RUN chmod +x /opt/akida-shard-service/*.sh && /opt/akida-shard-service/build_packages.sh

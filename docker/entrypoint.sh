@@ -47,7 +47,7 @@ fi
 # assigned chip at slot 0 of its family. The host's /dev is a separate tmpfs, unaffected.
 #
 # AKIDA_CHIP_NODE is the assigned /dev basename (e.g. "akd1500_3" or "akida0"), as chosen
-# by launch/up.sh from probe_chips.sh. Legacy AKIDA_CHIP (a bare AKD1000 index) still works.
+# by scripts/launch/up.sh from probe_chips.sh. Legacy AKIDA_CHIP (a bare AKD1000 index) still works.
 node="${AKIDA_CHIP_NODE:-}"
 [ -z "$node" ] && [ -n "${AKIDA_CHIP:-}" ] && node="akida${AKIDA_CHIP}"
 if [ -n "$node" ] && [ -e "/dev/$node" ]; then
@@ -134,7 +134,7 @@ MANAGEMENT)
         sleep 2
     done
 
-    [ "$first_boot" = "1" ] && log "cluster initialized; register the service via launch/up.sh"
+    [ "$first_boot" = "1" ] && log "cluster initialized; register the service via scripts/launch/up.sh"
     ;;
 COMPUTE)
     log "waiting for master shared ego.conf..."

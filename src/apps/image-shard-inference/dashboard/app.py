@@ -355,7 +355,7 @@ async function loadDatasets() {
     sel.innerHTML = '<option value="">no prepared sample set</option>';
     document.getElementById('run').disabled = true;
     document.getElementById('msg').textContent =
-      'No sample set found under .cluster/shared/samples. Bring the cluster up first: ./launch/up.sh image-shard-inference --nodes 6';
+      'No sample set found under .cluster/shared/samples. Bring the cluster up first: ./scripts/launch/up.sh image-shard-inference --nodes 6';
     return;
   }
   sel.innerHTML = d.datasets.map(s =>

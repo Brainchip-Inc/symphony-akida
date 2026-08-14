@@ -5,7 +5,7 @@ The app's client sends 448x448x3 images to the SegmentService, which splits each
 can demo the fleet without the VOC test kit: it exercises the whole pipeline and every
 throughput number, but the images are uniform noise, so the detector correctly finds nothing
 in them and accuracy is not evaluated. Point the launcher at a real .npz
-(`launch/up.sh image-shard-inference --dataset <npz>`) for detections and mAP.
+(`scripts/launch/up.sh image-shard-inference --dataset <npz>`) for detections and mAP.
 
 The launcher's prepare_samples.py flattens this into a raw .bin, the same numpy-free path the
 vww/kws sample sets use.

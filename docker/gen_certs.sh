@@ -103,7 +103,7 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
 
-# The SANs cover every hostname launch/up.sh assigns (--hostname /
+# The SANs cover every hostname scripts/launch/up.sh assigns (--hostname /
 # --network-alias symphony-master.local and symphony-compute-<j>.local) plus
 # localhost, for https://localhost:8443/platform.
 cat > openssl.cnf <<EOF

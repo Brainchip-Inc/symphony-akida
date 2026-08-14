@@ -14,7 +14,7 @@ Three things that were wrong in the original are fixed here:
 - **Real `.npz` samples** — the workload is fed from the same `.npz`-derived samples the
   batch app uses (`prepare_samples.py` → `<model>.bin`), not the old fat JSON int-lists.
 
-Both apps share one image (`symphony-akida`) and one cluster. `launch/up.sh`
+Both apps share one image (`symphony-akida`) and one cluster. `scripts/launch/up.sh`
 activates only one backend per run and tears any previous cluster down first, so the two
 demos never run in parallel.
 
@@ -39,7 +39,7 @@ docker build --build-arg ACCEPT_IBM_LICENSE=yes -f docker/Dockerfile -t symphony
 docker run --rm --entrypoint /usr/local/bin/verify-image symphony-akida --full
 
 # 4. launch the cluster in serial-http mode — auto-sizes to healthy chips, capped at 7
-./launch/up.sh serial-http-round-robin
+./scripts/launch/up.sh serial-http-round-robin
 
 # 5. open the dashboard (sizes the node list to the chip count)
 AKIDA_NODE_COUNT=$(ls -d /dev/akida* 2>/dev/null | wc -l) \
@@ -54,18 +54,18 @@ Over SSH? Forward the port: `ssh -L 5001:localhost:5001 <user>@<host>` and open 
 <summary><b>Returning users (everything already installed)</b></summary>
 
 ```bash
-./launch/up.sh serial-http-round-robin                          # bring the fleet up (HTTP servers per chip)
+./scripts/launch/up.sh serial-http-round-robin                          # bring the fleet up (HTTP servers per chip)
 ./src/apps/serial-http-round-robin/dashboard/run_dashboard.sh   # http://localhost:5001
 
-./launch/down.sh                                                # tear down + wipe .cluster/
+./scripts/launch/down.sh                                                # tear down + wipe .cluster/
 ```
 
 Switching demos just means relaunching with the other app name — `up.sh` removes the
 running cluster first:
 
 ```bash
-./launch/down.sh
-./launch/up.sh batch-inference     # the concurrent-SOAM demo
+./scripts/launch/down.sh
+./scripts/launch/up.sh batch-inference     # the concurrent-SOAM demo
 ```
 </details>
 
@@ -86,7 +86,7 @@ batch app; widen it to expose more models in both UIs at once.
 <details>
 <summary><b>How it works</b></summary>
 
-- `launch/up.sh serial-http-round-robin` launches one compute container per **healthy**
+- `scripts/launch/up.sh serial-http-round-robin` launches one compute container per **healthy**
   chip, pins it to that chip, publishes its HTTP server on host port `8790+j`, and sets
   `START_HTTP=1` so the entrypoint starts `run_http_server.sh` on the node.
 - Each `http_server.py` (Python 3.12, akida venv) maps the default model `hw_only=True` on

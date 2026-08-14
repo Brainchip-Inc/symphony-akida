@@ -11,16 +11,16 @@
 #   image-shard-inference    -> register the 3 shard services (segment/inference/stitch).
 # Everything is repo-local under .cluster/ (no /opt, no sudo).
 #
-# Run `launch/up.sh --help` for the invocation, the flags and the environment overrides;
+# Run `scripts/launch/up.sh --help` for the invocation, the flags and the environment overrides;
 # usage() below is the single source for those, so they cannot drift from this comment.
 set -euo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 usage() {
     cat <<'EOF'
-Usage: launch/up.sh [APP] [--nodes N|all] [--dataset <npz>]
-       launch/up.sh -h | --help
+Usage: scripts/launch/up.sh [APP] [--nodes N|all] [--dataset <npz>]
+       scripts/launch/up.sh -h | --help
 
 Launch the Symphony + Akida cluster: one master plus one compute node per Akida
 chip, with exactly one app backend active. Needs Akida hardware on the host.
@@ -59,12 +59,12 @@ Environment overrides
   AKIDA_KITS_DIR   where test kits are looked for        (default data/voc)
 
 Examples
-  launch/up.sh                                    batch-inference on every chip
-  launch/up.sh image-shard-inference              6 chips, one per tile
-  launch/up.sh image-shard-inference --nodes all  every chip, still 6 tiles
-  launch/up.sh serial-http-round-robin --nodes 3  3 chips, ports 8790-8792
+  scripts/launch/up.sh                                    batch-inference on every chip
+  scripts/launch/up.sh image-shard-inference              6 chips, one per tile
+  scripts/launch/up.sh image-shard-inference --nodes all  every chip, still 6 tiles
+  scripts/launch/up.sh serial-http-round-robin --nodes 3  3 chips, ports 8790-8792
 
-Tear the cluster down with launch/down.sh.
+Tear the cluster down with scripts/launch/down.sh.
 EOF
 }
 
@@ -165,7 +165,7 @@ log "app=$APP: launching 1 master + $NODES compute node(s) on chips: ${CHIPS[*]}
 # --- clean slate ------------------------------------------------------------
 for c in $(docker ps -aq --filter "name=symphony-master" --filter "name=symphony-compute-"); do docker rm -f "$c" >/dev/null; done
 docker network rm "$NETWORK" >/dev/null 2>&1 || true
-"$HERE/launch/reclaim_shared.sh" "$HERE/.cluster/shared"
+"$HERE/scripts/launch/reclaim_shared.sh" "$HERE/.cluster/shared"
 rm -rf "$HERE/.cluster"
 
 # --- seed models ------------------------------------------------------------
@@ -332,4 +332,4 @@ else
     log "Run the dashboard:"
     log "    AKIDA_NODE_COUNT=$NODES uv run python src/apps/serial-http-round-robin/dashboard/app.py   # http://localhost:5001"
 fi
-log "Tear down with: launch/down.sh"
+log "Tear down with: scripts/launch/down.sh"
