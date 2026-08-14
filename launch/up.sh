@@ -103,6 +103,13 @@ SHM_BYTES="${AKIDA_SHM_BYTES:-8388608}"   # per-node shared input buffer (8 MiB)
 SHM_SIZE="${AKIDA_SHM_SIZE:-128m}"        # docker /dev/shm size (must be >= SHM_BYTES)
 
 log(){ printf '\n[up] %s\n' "$*"; }
+# The Symphony web console belongs to the cluster, not to any one app, so all three
+# branches print it next to their dashboard hint. The certificate is self-signed
+# (docker/gen_certs.sh), so the browser warns once; and the WEBGUI service can take
+# a minute or two after the cluster is up before it answers.
+console_hint(){
+    log "Symphony console: https://localhost:$CONSOLE_PORT/platform   (user Admin, password Admin)"
+}
 msh(){ docker exec symphony-master bash -lc "source /opt/ibm/spectrumcomputing/profile.platform >/dev/null 2>&1; egosh user logon -u Admin -x Admin >/dev/null 2>&1; $*"; }
 
 # --- detect + health-probe chips -------------------------------------------
@@ -231,7 +238,9 @@ if [ "$APP" = "batch-inference" ]; then
 
     log "service instance placement:"
     msh "soamview service AkidaGenericService 2>&1" | sed 's/^/    /'
-    log "cluster up (batch-inference). Run the dashboard:"
+    log "cluster up (batch-inference)."
+    console_hint
+    log "Run the dashboard:"
     log "    uv run python src/apps/batch-inference/dashboard/app.py   # http://localhost:5001"
 elif [ "$APP" = "image-shard-inference" ]; then
     log "registering + enabling the 3 shard services (segment=mgmt, inference=1/chip, stitch=mgmt)"
@@ -259,7 +268,9 @@ elif [ "$APP" = "image-shard-inference" ]; then
     for app in ShardSegmentService ShardInferenceService ShardStitchService; do
         msh "soamview service $app 2>&1" | sed 's/^/    /'
     done
-    log "cluster up (image-shard-inference) on $NODES chip(s) for 6 tiles per frame. Run the dashboard:"
+    log "cluster up (image-shard-inference) on $NODES chip(s) for 6 tiles per frame."
+    console_hint
+    log "Run the dashboard:"
     log "    uv run python src/apps/image-shard-inference/dashboard/app.py   # http://localhost:5001"
     log "or drive it from the CLI:"
     log "    docker exec symphony-master /opt/akida-shard-client/run_client.sh --count 200"
@@ -295,7 +306,9 @@ else
     for j in $(seq 0 $((NODES-1))); do
         printf '    compute-%d -> http://localhost:%d\n' "$j" "$((PORT_BASE+j))"
     done
-    log "cluster up (serial-http-round-robin). Run the dashboard:"
+    log "cluster up (serial-http-round-robin)."
+    console_hint
+    log "Run the dashboard:"
     log "    AKIDA_NODE_COUNT=$NODES uv run python src/apps/serial-http-round-robin/dashboard/app.py   # http://localhost:5001"
 fi
 log "Tear down with: launch/down.sh"
