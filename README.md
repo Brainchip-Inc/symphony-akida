@@ -62,7 +62,9 @@ bring the other up:
 ```
 
 `up.sh` takes `--nodes N|all` to choose how many chips to use — it defaults to 6 for
-`image-shard-inference`, one per tile of a 448 frame.
+`image-shard-inference`, one per tile of a 448 frame. Both launchers document themselves:
+`./launch/up.sh --help` lists the apps, flags and environment overrides, and
+`./launch/down.sh --help` explains what teardown removes.
 </details>
 
 <details>
@@ -71,7 +73,7 @@ bring the other up:
 ```
 docker/     Dockerfile (public sources only) + entrypoint + the patch / PKI / verify
             scripts it runs at build time; bakes all three app backends
-launch/     up.sh <app> [--nodes N|all] [--dataset <npz>] / down.sh
+launch/     up.sh <app> [--nodes N|all] [--dataset <npz>] / down.sh   (both take --help)
 models/     on-chip .fbz models + anchors (Git LFS)
 data/       samples/ committed .npz sets (Git LFS); voc/ test kits symlinked in, never committed
 scripts/    sample generation, reference verification, mAP scoring

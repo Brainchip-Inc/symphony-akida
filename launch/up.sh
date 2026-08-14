@@ -1,19 +1,6 @@
 #!/usr/bin/env bash
 # Launch the Symphony + Akida cluster, sized to the host's Akida devices.
 #
-#   launch/up.sh [APP] [--nodes N|all] [--dataset <npz>]
-#
-#   APP        batch-inference (default) | serial-http-round-robin | image-shard-inference
-#   --nodes    how many chips to use. Defaults to 6 for image-shard-inference, one per tile
-#              of a 448 frame, and to 'all' otherwise. Always capped at the CE 64-core limit
-#              (master + 7 compute), so 'all' on a bigger box leaves the extra chips idle.
-#   --dataset  image-shard-inference only: one extra .npz kit from outside data/voc. Not needed
-#              for the usual case -- every kit in data/voc is prepared automatically.
-#
-# image-shard-inference sample sets: the committed random set always, plus every .npz found in
-# data/voc (symlink your test kits in there; see data/voc/README.md). All of them show up in the
-# dashboard's dropdown, and the client selects one with --samples <name>.
-#
 # One master + N compute, each owning one chip. All three apps share this cluster and the
 # image; the launcher activates exactly ONE backend per run (so only one process ever owns
 # each chip -- and the demos never run in parallel):
@@ -23,31 +10,87 @@
 #                               HTTP inference server; the dashboard round-robins /infer.
 #   image-shard-inference    -> register the 3 shard services (segment/inference/stitch).
 # Everything is repo-local under .cluster/ (no /opt, no sudo).
+#
+# Run `launch/up.sh --help` for the invocation, the flags and the environment overrides;
+# usage() below is the single source for those, so they cannot drift from this comment.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+usage() {
+    cat <<'EOF'
+Usage: launch/up.sh [APP] [--nodes N|all] [--dataset <npz>]
+       launch/up.sh -h | --help
+
+Launch the Symphony + Akida cluster: one master plus one compute node per Akida
+chip, with exactly one app backend active. Needs Akida hardware on the host.
+
+Apps
+  batch-inference          Symphony SOAM, concurrent fan-out, every chip busy at
+                           once. The default when APP is omitted.
+  serial-http-round-robin  plain HTTP per node, round-robin, ~one chip at a time.
+  image-shard-inference    Symphony SOAM in 3 stages: split one 448 frame into 6
+                           tiles, infer in parallel, merge. Reports a real mAP.
+
+Options
+  --nodes N|all    how many chips to use. Defaults to 6 for image-shard-inference
+                   (one per tile of a 448 frame) and to 'all' otherwise. Always
+                   capped at the Community Edition 64-core limit of master + 7
+                   compute, so 'all' on a bigger box leaves the extra chips idle.
+  --dataset <npz>  image-shard-inference only: one extra test kit from outside
+                   data/voc. Not needed for the usual case, since every kit in
+                   data/voc is prepared automatically.
+  -h, --help       show this and exit.
+
+Sample sets
+  The committed random set is always available, plus every .npz found in data/voc
+  (symlink your test kits in there; see data/voc/README.md). All of them appear in
+  the dashboard dropdown, and the client selects one with --samples <name>.
+
+Environment overrides
+  IMAGE            image to run                          (default symphony-akida)
+  NETWORK          docker network name                   (default symcluster)
+  NODES            fallback for --nodes                  (default per app, above)
+  MAX_NODES        compute-node cap                      (default 7, the CE limit)
+  CONSOLE_PORT     host port for the 8443 console        (default 8443)
+  AKIDA_PORT_BASE  serial-http: compute-j -> this + j    (default 8790)
+  AKIDA_SHM_BYTES  per-node shared input buffer, bytes   (default 8388608)
+  AKIDA_SHM_SIZE   docker /dev/shm size, >= the above    (default 128m)
+  AKIDA_KITS_DIR   where test kits are looked for        (default data/voc)
+
+Examples
+  launch/up.sh                                    batch-inference on every chip
+  launch/up.sh image-shard-inference              6 chips, one per tile
+  launch/up.sh image-shard-inference --nodes all  every chip, still 6 tiles
+  launch/up.sh serial-http-round-robin --nodes 3  3 chips, ports 8790-8792
+
+Tear the cluster down with launch/down.sh.
+EOF
+}
+
 APP=""
 WANT_NODES=""
 DATASET=""
 while [ $# -gt 0 ]; do
     case "$1" in
-        --nodes)   WANT_NODES="$2"; shift 2;;
-        --dataset) DATASET="$2"; shift 2;;
-        -*) echo "unknown option: '$1'" >&2; exit 1;;
-        *) [ -z "$APP" ] || { echo "unexpected argument: '$1'" >&2; exit 1; }; APP="$1"; shift;;
+        -h|--help) usage; exit 0;;
+        --nodes)   WANT_NODES="${2:-}"; [ -n "$WANT_NODES" ] || { echo "--nodes needs a value (see --help)" >&2; exit 1; }; shift 2;;
+        --dataset) DATASET="${2:-}";    [ -n "$DATASET" ]    || { echo "--dataset needs a value (see --help)" >&2; exit 1; }; shift 2;;
+        -*) echo "unknown option: '$1' (see --help)" >&2; exit 1;;
+        *) [ -z "$APP" ] || { echo "unexpected argument: '$1' (see --help)" >&2; exit 1; }; APP="$1"; shift;;
     esac
 done
 APP="${APP:-batch-inference}"
 case "$APP" in
     batch-inference|serial-http-round-robin|image-shard-inference) ;;
-    *) echo "unknown app: '$APP' (use: batch-inference | serial-http-round-robin | image-shard-inference)" >&2; exit 1;;
+    *) echo "unknown app: '$APP' (use: batch-inference | serial-http-round-robin | image-shard-inference; see --help)" >&2; exit 1;;
 esac
 # One chip per tile is the point of the shard demo, so it defaults to the tile count.
-[ -n "$DATASET" ] && [ "$APP" != image-shard-inference ] && { echo "--dataset only applies to image-shard-inference" >&2; exit 1; }
+[ -n "$DATASET" ] && [ "$APP" != image-shard-inference ] && { echo "--dataset only applies to image-shard-inference (see --help)" >&2; exit 1; }
 if [ -z "$WANT_NODES" ]; then
     [ "$APP" = image-shard-inference ] && WANT_NODES="${NODES:-6}" || WANT_NODES="${NODES:-all}"
 fi
-case "$WANT_NODES" in all|[1-9]|[1-9][0-9]) ;; *) echo "--nodes must be a positive number or 'all' (got '$WANT_NODES')" >&2; exit 1;; esac
+case "$WANT_NODES" in all|[1-9]|[1-9][0-9]) ;; *) echo "--nodes must be a positive number or 'all' (got '$WANT_NODES'; see --help)" >&2; exit 1;; esac
 IMAGE="${IMAGE:-symphony-akida}"
 NETWORK="${NETWORK:-symcluster}"
 SHARED="$HERE/.cluster/shared"
