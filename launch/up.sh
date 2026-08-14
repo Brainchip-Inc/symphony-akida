@@ -103,12 +103,33 @@ SHM_BYTES="${AKIDA_SHM_BYTES:-8388608}"   # per-node shared input buffer (8 MiB)
 SHM_SIZE="${AKIDA_SHM_SIZE:-128m}"        # docker /dev/shm size (must be >= SHM_BYTES)
 
 log(){ printf '\n[up] %s\n' "$*"; }
+# The address another machine on the network would use to reach this host. `ip route
+# get` reports the source address of the default route, which is the one that actually
+# answers from elsewhere; `hostname -I` is only the fallback because it can lead with a
+# docker bridge address (172.17.0.1) that is useless off-box.
+lan_ip(){
+    local ip=""
+    ip="$(ip route get 1.1.1.1 2>/dev/null \
+          | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}' || true)"
+    [ -n "$ip" ] || ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+    printf '%s' "$ip"
+}
+
 # The Symphony web console belongs to the cluster, not to any one app, so all three
-# branches print it next to their dashboard hint. The certificate is self-signed
-# (docker/gen_certs.sh), so the browser warns once; and the WEBGUI service can take
-# a minute or two after the cluster is up before it answers.
+# branches print it next to their dashboard hint. The container publishes the port on
+# every interface, so it is reachable from the network as well; the second line is
+# printed only when a routable address can be determined. The certificate is
+# self-signed (docker/gen_certs.sh), so the browser warns once, and the WEBGUI service
+# can take a minute or two after the cluster is up before it answers.
 console_hint(){
-    log "Symphony console: https://localhost:$CONSOLE_PORT/platform   (user Admin, password Admin)"
+    local label="Symphony console: " ip pad
+    pad="$(printf '%*s' ${#label} '')"
+    log "${label}https://localhost:$CONSOLE_PORT/platform   (user Admin, password Admin)"
+    ip="$(lan_ip)"
+    if [ -n "$ip" ]; then
+        printf '[up] %s%s\n' "$pad" \
+            "https://$ip:$CONSOLE_PORT/platform   (same console, from another machine)"
+    fi
 }
 msh(){ docker exec symphony-master bash -lc "source /opt/ibm/spectrumcomputing/profile.platform >/dev/null 2>&1; egosh user logon -u Admin -x Admin >/dev/null 2>&1; $*"; }
 
