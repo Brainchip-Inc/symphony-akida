@@ -11,7 +11,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IMAGE="${IMAGE:-symphony-akida-demo:local}"
+IMAGE="${IMAGE:-symphony-akida}"
 KITS_DIR="${AKIDA_KITS_DIR:-$HERE/data/voc}"
 NPZ="${AKIDA_TEST_NPZ:-}"
 CHIP="${AKIDA_CHIP_NODE:-}"

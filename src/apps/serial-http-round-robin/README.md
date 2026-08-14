@@ -14,7 +14,7 @@ Three things that were wrong in the original are fixed here:
 - **Real `.npz` samples** — the workload is fed from the same `.npz`-derived samples the
   batch app uses (`prepare_samples.py` → `<model>.bin`), not the old fat JSON int-lists.
 
-Both apps share one image (`symphony-akida-demo:local`) and one cluster. `launch/up.sh`
+Both apps share one image (`symphony-akida`) and one cluster. `scripts/launch/up.sh`
 activates only one backend per run and tears any previous cluster down first, so the two
 demos never run in parallel.
 
@@ -32,15 +32,17 @@ git lfs install && git lfs pull
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
 
-# 3. build the image (shared by both apps)
-docker build -f docker/Dockerfile -t symphony-akida-demo:local .
+# 3. build the image (shared by both apps) — public sources only; slow the first
+#    time, cached after that. ACCEPT_IBM_LICENSE is required and has no default:
+#    see the repo README's Licensing section.
+docker build --build-arg ACCEPT_IBM_LICENSE=yes -f docker/Dockerfile -t symphony-akida .
+docker run --rm --entrypoint /usr/local/bin/verify-image symphony-akida --full
 
 # 4. launch the cluster in serial-http mode — auto-sizes to healthy chips, capped at 7
-./launch/up.sh serial-http-round-robin
+./scripts/launch/up.sh serial-http-round-robin
 
-# 5. open the dashboard (sizes the node list to the chip count)
-AKIDA_NODE_COUNT=$(ls -d /dev/akida* 2>/dev/null | wc -l) \
-  FLASK_PORT=5001 uv run python src/apps/serial-http-round-robin/dashboard/app.py
+# 5. open the dashboard -- sizes the node list to the chips up.sh actually launched
+./src/apps/serial-http-round-robin/dashboard/run_dashboard.sh
 #   then browse http://localhost:5001
 ```
 
@@ -51,18 +53,18 @@ Over SSH? Forward the port: `ssh -L 5001:localhost:5001 <user>@<host>` and open 
 <summary><b>Returning users (everything already installed)</b></summary>
 
 ```bash
-./launch/up.sh serial-http-round-robin                          # bring the fleet up (HTTP servers per chip)
+./scripts/launch/up.sh serial-http-round-robin                          # bring the fleet up (HTTP servers per chip)
 ./src/apps/serial-http-round-robin/dashboard/run_dashboard.sh   # http://localhost:5001
 
-./launch/down.sh                                                # tear down + wipe .cluster/
+./scripts/launch/down.sh                                                # tear down + wipe .cluster/
 ```
 
 Switching demos just means relaunching with the other app name — `up.sh` removes the
 running cluster first:
 
 ```bash
-./launch/down.sh
-./launch/up.sh batch-inference     # the concurrent-SOAM demo
+./scripts/launch/down.sh
+./scripts/launch/up.sh batch-inference     # the concurrent-SOAM demo
 ```
 </details>
 
@@ -83,7 +85,7 @@ batch app; widen it to expose more models in both UIs at once.
 <details>
 <summary><b>How it works</b></summary>
 
-- `launch/up.sh serial-http-round-robin` launches one compute container per **healthy**
+- `scripts/launch/up.sh serial-http-round-robin` launches one compute container per **healthy**
   chip, pins it to that chip, publishes its HTTP server on host port `8790+j`, and sets
   `START_HTTP=1` so the entrypoint starts `run_http_server.sh` on the node.
 - Each `http_server.py` (Python 3.12, akida venv) maps the default model `hw_only=True` on
@@ -119,5 +121,6 @@ raise it to run more.
 - **Chip stuck (DMA timeout):** `sudo modprobe -r akida_pcie && sudo modprobe akida_pcie`, relaunch.
 - **Dashboard shows all nodes down:** confirm you launched with `serial-http-round-robin`
   (the batch mode does not publish per-node ports) and that `AKIDA_NODE_COUNT` matches the
-  chip count.
+  node count `up.sh` reported -- which is the healthy chip count capped at 7, not the raw
+  number of `/dev` nodes.
 </details>

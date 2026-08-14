@@ -10,7 +10,7 @@ them in, which costs nothing and keeps one copy on disk:
 ```bash
 ln -s ~/data/voc/VOCdevkit/voc2007_test_r448_first500.npz data/voc/
 ln -s ~/data/voc/VOCdevkit/voc2007_test_r448.npz          data/voc/
-./launch/up.sh image-shard-inference --nodes 6
+./scripts/launch/up.sh image-shard-inference --nodes 6
 ```
 
 Set up the same symlinks on another machine and that machine's launcher offers the same sets.

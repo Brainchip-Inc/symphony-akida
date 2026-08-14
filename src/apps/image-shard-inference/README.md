@@ -67,14 +67,14 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
 
 # 3. build the image (bakes all three app backends)
-docker build -f docker/Dockerfile -t symphony-akida-demo:local .
+docker build --build-arg ACCEPT_IBM_LICENSE=yes -f docker/Dockerfile -t symphony-akida .
 
 # 4. optional: symlink any VOC test kits you have, for real frames and mAP
 #    (skip it and the demo runs on the committed random set instead)
 ln -s ~/data/voc/VOCdevkit/voc2007_test_r448*.npz data/voc/
 
 # 5. launch the cluster on six chips — one per tile
-./launch/up.sh image-shard-inference --nodes 6
+./scripts/launch/up.sh image-shard-inference --nodes 6
 
 # 6. open the dashboard, pick a sample set, Run
 uv run python src/apps/image-shard-inference/dashboard/app.py
@@ -89,14 +89,14 @@ Over SSH? Forward the port: `ssh -L 5001:localhost:5001 <user>@<host>` and open
 <summary><b>Returning users (everything already installed)</b></summary>
 
 ```bash
-./launch/up.sh image-shard-inference --nodes 6                     # six chips, one per tile
-./launch/up.sh image-shard-inference --nodes all                   # every healthy chip (CE caps at 7)
+./scripts/launch/up.sh image-shard-inference --nodes 6                     # six chips, one per tile
+./scripts/launch/up.sh image-shard-inference --nodes all                   # every healthy chip (CE caps at 7)
 uv run python src/apps/image-shard-inference/dashboard/app.py      # http://localhost:5001
 
 # ...or drive it straight from the CLI (runs the orchestrator client inside the master):
 docker exec symphony-master /opt/akida-shard-client/run_client.sh --count 200
 
-./launch/down.sh                                                   # tear down + wipe .cluster/
+./scripts/launch/down.sh                                                   # tear down + wipe .cluster/
 ```
 
 `--nodes` defaults to **6** for this app (one chip per tile) and is always capped at the
@@ -108,9 +108,8 @@ offers all of them in one dropdown. Symlink your kits in there once and every la
 up; with none, the demo runs on random frames and says so.
 
 **Editing code.** `src/common/`, `service/` and `client/` are **baked into the image**, so a
-change there only takes effect after `docker build -f docker/Dockerfile -t symphony-akida-demo:local .`
-followed by a relaunch. The dashboard, `launch/` and `scripts/` run from the working tree and
-need neither.
+change there only takes effect after a rebuild (step 3 above) followed by a relaunch. The
+dashboard and everything under `scripts/` run from the working tree and need neither.
 </details>
 
 <details>
@@ -127,7 +126,7 @@ and every launch offers them, under whatever name the file has:
 ```bash
 ln -s ~/data/voc/VOCdevkit/voc2007_test_r448_first500.npz data/voc/   # 500 frames, quick
 ln -s ~/data/voc/VOCdevkit/voc2007_test_r448.npz          data/voc/   # 4,952, the published figure
-./launch/up.sh image-shard-inference --nodes 6
+./scripts/launch/up.sh image-shard-inference --nodes 6
 
 # run one and dump the merged detections (--post-thresh 0 = the reference protocol)
 docker exec symphony-master /opt/akida-shard-client/run_client.sh \
@@ -223,9 +222,9 @@ Three things about running it that each cost real accuracy to get wrong:
   22.70 against 49.14. Plain NMS cannot weld two halves of an object together, and cannot tell a
   duplicate from a fragment.
 
-Requires **akida 2.19.2** — the `.fbz` is serialized by it and 2.19.1 refuses to deserialize it,
-so `docker/Dockerfile` upgrades the runtime and the image must be rebuilt after pulling this
-change.
+Requires **akida 2.19.2** — the `.fbz` is serialized by it and 2.19.1 refuses to deserialize it.
+`docker/Dockerfile` pins that version into `/opt/akida-venv`, so rebuild the image after pulling
+a change that touches `docker/`.
 </details>
 
 <details>
@@ -265,7 +264,7 @@ concatenation for exactly that reason.
 <details>
 <summary><b>How it works</b></summary>
 
-- `launch/up.sh image-shard-inference --nodes 6` launches one master + one compute container per
+- `scripts/launch/up.sh image-shard-inference --nodes 6` launches one master + one compute container per
   chip (AKD1500 preferred, one chip pinned per container), seeds `models/`, prepares the sample
   sets, then registers the three SOAM services: `ShardInferenceService` (one instance per chip,
   `select(!mg)` + `EqualFreeSlot`) and `ShardSegmentService` / `ShardStitchService` (CPU, on the
@@ -300,7 +299,7 @@ correct one** and accuracy is not evaluated. The dashboard says so in a banner. 
 `uv run python scripts/make_shard_samples.py`.
 
 The **VOC2007 test kit** `.npz` files are the real thing; see *Measuring accuracy* above. Pass
-one to `./launch/up.sh --dataset <npz>` and it becomes a named sample set the client selects with
+one to `./scripts/launch/up.sh --dataset <npz>` and it becomes a named sample set the client selects with
 `--samples <name>`.
 
 Either way `src/common/prepare_samples.py` flattens the frames into
@@ -349,8 +348,14 @@ the frame (`aeroplane`, `train`) and clearly **helps** medium or numerous ones (
 - **Chip stuck (DMA timeout):** `sudo modprobe -r akida-pcie && sudo modprobe akida-pcie`,
   relaunch. Avoid driving a chip from two processes at once — don't run
   `scripts/verify_reference.sh` while the cluster is up.
-- **`Cannot deserialize the model: created with Akida 2.19.2`:** the image predates the akida
-  upgrade. Rebuild it: `docker build -f docker/Dockerfile -t symphony-akida-demo:local .`
+- **`Cannot deserialize the model: created with Akida 2.19.2`:** the image was built with an
+  older akida pin. Check with `docker run --rm --entrypoint /opt/python3.12/bin/python3.12
+  symphony-akida -c 'import akida;print(akida.__version__)'`, then rebuild:
+  `docker build --build-arg ACCEPT_IBM_LICENSE=yes -f docker/Dockerfile -t symphony-akida .`
 - **Fewer nodes than chips:** CE caps the cluster at 64 cores → master + 7 compute; extra chips
   idle. `--nodes` can only go down from there.
+- **Anything looks structurally wrong with the image:**
+  `docker run --rm --entrypoint /usr/local/bin/verify-image symphony-akida --full` — it names
+  the broken invariant (the `soamapi` import, the akida import, an `ldd` gap, PKI expiry, a
+  `7.3.2` literal that no longer matches the tree).
 </details>

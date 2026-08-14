@@ -10,7 +10,7 @@
 set -euo pipefail
 
 SHARED="$1"
-IMAGE="${IMAGE:-symphony-akida-demo:local}"
+IMAGE="${IMAGE:-symphony-akida}"
 [ -d "$SHARED" ] || exit 0
 
 docker run --rm --entrypoint /usr/bin/chown -v "$SHARED:/shared" "$IMAGE" \

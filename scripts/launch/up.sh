@@ -1,19 +1,6 @@
 #!/usr/bin/env bash
 # Launch the Symphony + Akida cluster, sized to the host's Akida devices.
 #
-#   launch/up.sh [APP] [--nodes N|all] [--dataset <npz>]
-#
-#   APP        batch-inference (default) | serial-http-round-robin | image-shard-inference
-#   --nodes    how many chips to use. Defaults to 6 for image-shard-inference, one per tile
-#              of a 448 frame, and to 'all' otherwise. Always capped at the CE 64-core limit
-#              (master + 7 compute), so 'all' on a bigger box leaves the extra chips idle.
-#   --dataset  image-shard-inference only: one extra .npz kit from outside data/voc. Not needed
-#              for the usual case -- every kit in data/voc is prepared automatically.
-#
-# image-shard-inference sample sets: the committed random set always, plus every .npz found in
-# data/voc (symlink your test kits in there; see data/voc/README.md). All of them show up in the
-# dashboard's dropdown, and the client selects one with --samples <name>.
-#
 # One master + N compute, each owning one chip. All three apps share this cluster and the
 # image; the launcher activates exactly ONE backend per run (so only one process ever owns
 # each chip -- and the demos never run in parallel):
@@ -23,32 +10,88 @@
 #                               HTTP inference server; the dashboard round-robins /infer.
 #   image-shard-inference    -> register the 3 shard services (segment/inference/stitch).
 # Everything is repo-local under .cluster/ (no /opt, no sudo).
+#
+# Run `scripts/launch/up.sh --help` for the invocation, the flags and the environment overrides;
+# usage() below is the single source for those, so they cannot drift from this comment.
 set -euo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+usage() {
+    cat <<'EOF'
+Usage: scripts/launch/up.sh [APP] [--nodes N|all] [--dataset <npz>]
+       scripts/launch/up.sh -h | --help
+
+Launch the Symphony + Akida cluster: one master plus one compute node per Akida
+chip, with exactly one app backend active. Needs Akida hardware on the host.
+
+Apps
+  batch-inference          Symphony SOAM, concurrent fan-out, every chip busy at
+                           once. The default when APP is omitted.
+  serial-http-round-robin  plain HTTP per node, round-robin, ~one chip at a time.
+  image-shard-inference    Symphony SOAM in 3 stages: split one 448 frame into 6
+                           tiles, infer in parallel, merge. Reports a real mAP.
+
+Options
+  --nodes N|all    how many chips to use. Defaults to 6 for image-shard-inference
+                   (one per tile of a 448 frame) and to 'all' otherwise. Always
+                   capped at the Community Edition 64-core limit of master + 7
+                   compute, so 'all' on a bigger box leaves the extra chips idle.
+  --dataset <npz>  image-shard-inference only: one extra test kit from outside
+                   data/voc. Not needed for the usual case, since every kit in
+                   data/voc is prepared automatically.
+  -h, --help       show this and exit.
+
+Sample sets
+  The committed random set is always available, plus every .npz found in data/voc
+  (symlink your test kits in there; see data/voc/README.md). All of them appear in
+  the dashboard dropdown, and the client selects one with --samples <name>.
+
+Environment overrides
+  IMAGE            image to run                          (default symphony-akida)
+  NETWORK          docker network name                   (default symcluster)
+  NODES            fallback for --nodes                  (default per app, above)
+  MAX_NODES        compute-node cap                      (default 7, the CE limit)
+  CONSOLE_PORT     host port for the 8443 console        (default 8443)
+  AKIDA_PORT_BASE  serial-http: compute-j -> this + j    (default 8790)
+  AKIDA_SHM_BYTES  per-node shared input buffer, bytes   (default 8388608)
+  AKIDA_SHM_SIZE   docker /dev/shm size, >= the above    (default 128m)
+  AKIDA_KITS_DIR   where test kits are looked for        (default data/voc)
+
+Examples
+  scripts/launch/up.sh                                    batch-inference on every chip
+  scripts/launch/up.sh image-shard-inference              6 chips, one per tile
+  scripts/launch/up.sh image-shard-inference --nodes all  every chip, still 6 tiles
+  scripts/launch/up.sh serial-http-round-robin --nodes 3  3 chips, ports 8790-8792
+
+Tear the cluster down with scripts/launch/down.sh.
+EOF
+}
+
 APP=""
 WANT_NODES=""
 DATASET=""
 while [ $# -gt 0 ]; do
     case "$1" in
-        --nodes)   WANT_NODES="$2"; shift 2;;
-        --dataset) DATASET="$2"; shift 2;;
-        -*) echo "unknown option: '$1'" >&2; exit 1;;
-        *) [ -z "$APP" ] || { echo "unexpected argument: '$1'" >&2; exit 1; }; APP="$1"; shift;;
+        -h|--help) usage; exit 0;;
+        --nodes)   WANT_NODES="${2:-}"; [ -n "$WANT_NODES" ] || { echo "--nodes needs a value (see --help)" >&2; exit 1; }; shift 2;;
+        --dataset) DATASET="${2:-}";    [ -n "$DATASET" ]    || { echo "--dataset needs a value (see --help)" >&2; exit 1; }; shift 2;;
+        -*) echo "unknown option: '$1' (see --help)" >&2; exit 1;;
+        *) [ -z "$APP" ] || { echo "unexpected argument: '$1' (see --help)" >&2; exit 1; }; APP="$1"; shift;;
     esac
 done
 APP="${APP:-batch-inference}"
 case "$APP" in
     batch-inference|serial-http-round-robin|image-shard-inference) ;;
-    *) echo "unknown app: '$APP' (use: batch-inference | serial-http-round-robin | image-shard-inference)" >&2; exit 1;;
+    *) echo "unknown app: '$APP' (use: batch-inference | serial-http-round-robin | image-shard-inference; see --help)" >&2; exit 1;;
 esac
 # One chip per tile is the point of the shard demo, so it defaults to the tile count.
-[ -n "$DATASET" ] && [ "$APP" != image-shard-inference ] && { echo "--dataset only applies to image-shard-inference" >&2; exit 1; }
+[ -n "$DATASET" ] && [ "$APP" != image-shard-inference ] && { echo "--dataset only applies to image-shard-inference (see --help)" >&2; exit 1; }
 if [ -z "$WANT_NODES" ]; then
     [ "$APP" = image-shard-inference ] && WANT_NODES="${NODES:-6}" || WANT_NODES="${NODES:-all}"
 fi
-case "$WANT_NODES" in all|[1-9]|[1-9][0-9]) ;; *) echo "--nodes must be a positive number or 'all' (got '$WANT_NODES')" >&2; exit 1;; esac
-IMAGE="${IMAGE:-symphony-akida-demo:local}"
+case "$WANT_NODES" in all|[1-9]|[1-9][0-9]) ;; *) echo "--nodes must be a positive number or 'all' (got '$WANT_NODES'; see --help)" >&2; exit 1;; esac
+IMAGE="${IMAGE:-symphony-akida}"
 NETWORK="${NETWORK:-symcluster}"
 SHARED="$HERE/.cluster/shared"
 MODELS_SRC="$HERE/models"
@@ -60,6 +103,34 @@ SHM_BYTES="${AKIDA_SHM_BYTES:-8388608}"   # per-node shared input buffer (8 MiB)
 SHM_SIZE="${AKIDA_SHM_SIZE:-128m}"        # docker /dev/shm size (must be >= SHM_BYTES)
 
 log(){ printf '\n[up] %s\n' "$*"; }
+# The address another machine on the network would use to reach this host. `ip route
+# get` reports the source address of the default route, which is the one that actually
+# answers from elsewhere; `hostname -I` is only the fallback because it can lead with a
+# docker bridge address (172.17.0.1) that is useless off-box.
+lan_ip(){
+    local ip=""
+    ip="$(ip route get 1.1.1.1 2>/dev/null \
+          | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}' || true)"
+    [ -n "$ip" ] || ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+    printf '%s' "$ip"
+}
+
+# The Symphony web console belongs to the cluster, not to any one app, so all three
+# branches print it next to their dashboard hint. The container publishes the port on
+# every interface, so it is reachable from the network as well; the second line is
+# printed only when a routable address can be determined. The certificate is
+# self-signed (docker/gen_certs.sh), so the browser warns once, and the WEBGUI service
+# can take a minute or two after the cluster is up before it answers.
+console_hint(){
+    local label="Symphony console: " ip pad
+    pad="$(printf '%*s' ${#label} '')"
+    log "${label}https://localhost:$CONSOLE_PORT/platform   (user Admin, password Admin)"
+    ip="$(lan_ip)"
+    if [ -n "$ip" ]; then
+        printf '[up] %s%s\n' "$pad" \
+            "https://$ip:$CONSOLE_PORT/platform   (same console, from another machine)"
+    fi
+}
 msh(){ docker exec symphony-master bash -lc "source /opt/ibm/spectrumcomputing/profile.platform >/dev/null 2>&1; egosh user logon -u Admin -x Admin >/dev/null 2>&1; $*"; }
 
 # --- detect + health-probe chips -------------------------------------------
@@ -94,7 +165,7 @@ log "app=$APP: launching 1 master + $NODES compute node(s) on chips: ${CHIPS[*]}
 # --- clean slate ------------------------------------------------------------
 for c in $(docker ps -aq --filter "name=symphony-master" --filter "name=symphony-compute-"); do docker rm -f "$c" >/dev/null; done
 docker network rm "$NETWORK" >/dev/null 2>&1 || true
-"$HERE/launch/reclaim_shared.sh" "$HERE/.cluster/shared"
+"$HERE/scripts/launch/reclaim_shared.sh" "$HERE/.cluster/shared"
 rm -rf "$HERE/.cluster"
 
 # --- seed models ------------------------------------------------------------
@@ -188,7 +259,9 @@ if [ "$APP" = "batch-inference" ]; then
 
     log "service instance placement:"
     msh "soamview service AkidaGenericService 2>&1" | sed 's/^/    /'
-    log "cluster up (batch-inference). Run the dashboard:"
+    log "cluster up (batch-inference)."
+    console_hint
+    log "Run the dashboard:"
     log "    uv run python src/apps/batch-inference/dashboard/app.py   # http://localhost:5001"
 elif [ "$APP" = "image-shard-inference" ]; then
     log "registering + enabling the 3 shard services (segment=mgmt, inference=1/chip, stitch=mgmt)"
@@ -216,26 +289,13 @@ elif [ "$APP" = "image-shard-inference" ]; then
     for app in ShardSegmentService ShardInferenceService ShardStitchService; do
         msh "soamview service $app 2>&1" | sed 's/^/    /'
     done
-    log "cluster up (image-shard-inference) on $NODES chip(s) for 6 tiles per frame. Run the dashboard:"
+    log "cluster up (image-shard-inference) on $NODES chip(s) for 6 tiles per frame."
+    console_hint
+    log "Run the dashboard:"
     log "    uv run python src/apps/image-shard-inference/dashboard/app.py   # http://localhost:5001"
-    log "or drive it from the CLI:"
-    log "    docker exec symphony-master /opt/akida-shard-client/run_client.sh --count 200"
-    # The scoring hint names the biggest set that carries ground truth, however it got prepared.
-    best_set=""; best_n=0
-    for side in "$SHARED"/samples/*.samples.json; do
-        [ -f "$side" ] || continue
-        grep -q '"has_ground_truth": *true' "$side" || continue
-        n=$(sed -n 's/.*"count": *\([0-9]*\).*/\1/p' "$side")
-        [ "${n:-0}" -gt "$best_n" ] && { best_n="$n"; best_set="$(basename "$side" .samples.json)"; }
-    done
-    if [ -n "$best_set" ]; then
-        # --ordered so frame i is sample i, and --post-thresh 0 because the published mAP is
-        # measured with no post-merge gate.
-        log "or score a real test kit end to end:"
-        log "    docker exec symphony-master /opt/akida-shard-client/run_client.sh \\"
-        log "        --samples $best_set --count $best_n --ordered --post-thresh 0 --dump"
-        log "    uv run python scripts/eval_shard_map.py"
-    else
+    # Not a usage hint but a warning: without ground truth the run still exercises every
+    # stage, so the missing half of the demo stays invisible until the mAP comes back empty.
+    if ! grep -q '"has_ground_truth": *true' "$SHARED"/samples/*.samples.json 2>/dev/null; then
         log "NOTE: no test kit found, so the only sample set is random input -- every stage and"
         log "      every throughput number is exercised, but there is nothing to detect and no"
         log "      mAP. Symlink a kit into data/voc/ and relaunch (see data/voc/README.md)."
@@ -252,7 +312,9 @@ else
     for j in $(seq 0 $((NODES-1))); do
         printf '    compute-%d -> http://localhost:%d\n' "$j" "$((PORT_BASE+j))"
     done
-    log "cluster up (serial-http-round-robin). Run the dashboard:"
+    log "cluster up (serial-http-round-robin)."
+    console_hint
+    log "Run the dashboard:"
     log "    AKIDA_NODE_COUNT=$NODES uv run python src/apps/serial-http-round-robin/dashboard/app.py   # http://localhost:5001"
 fi
-log "Tear down with: launch/down.sh"
+log "Tear down with: scripts/launch/down.sh"
