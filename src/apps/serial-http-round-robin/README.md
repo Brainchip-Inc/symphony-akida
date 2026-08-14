@@ -21,7 +21,7 @@ demos never run in parallel.
 <details open>
 <summary><b>First run (fresh clone)</b></summary>
 
-Run on the host with the Akida cards (needs `/dev/akida*` and the `akida_pcie` driver) + Docker.
+Run on the host with the Akida cards (needs `/dev/akd1500_*` and/or `/dev/akida*` and the `akida_pcie` driver) + Docker.
 
 ```bash
 # 1. clone and fetch the LFS model + sample files
