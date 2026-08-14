@@ -19,8 +19,11 @@ git lfs install && git lfs pull
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
 
-# 3. build the image (Symphony CE + Akida runtime + our service & client)
-docker build -f docker/Dockerfile -t symphony-akida-demo:local .
+# 3. build the image (Symphony CE + Akida runtime + our service & client) — public
+#    sources only; slow the first time, cached after that. ACCEPT_IBM_LICENSE is
+#    required and has no default: see the repo README's Licensing section.
+docker build --build-arg ACCEPT_IBM_LICENSE=yes -f docker/Dockerfile -t symphony-akida .
+docker run --rm --entrypoint /usr/local/bin/verify-image symphony-akida --full
 
 # 4. launch the cluster — auto-sizes to healthy chips, capped at 7 (CE limit)
 ./launch/up.sh

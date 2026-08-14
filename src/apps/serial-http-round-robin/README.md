@@ -14,7 +14,7 @@ Three things that were wrong in the original are fixed here:
 - **Real `.npz` samples** — the workload is fed from the same `.npz`-derived samples the
   batch app uses (`prepare_samples.py` → `<model>.bin`), not the old fat JSON int-lists.
 
-Both apps share one image (`symphony-akida-demo:local`) and one cluster. `launch/up.sh`
+Both apps share one image (`symphony-akida`) and one cluster. `launch/up.sh`
 activates only one backend per run and tears any previous cluster down first, so the two
 demos never run in parallel.
 
@@ -32,8 +32,11 @@ git lfs install && git lfs pull
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
 
-# 3. build the image (shared by both apps)
-docker build -f docker/Dockerfile -t symphony-akida-demo:local .
+# 3. build the image (shared by both apps) — public sources only; slow the first
+#    time, cached after that. ACCEPT_IBM_LICENSE is required and has no default:
+#    see the repo README's Licensing section.
+docker build --build-arg ACCEPT_IBM_LICENSE=yes -f docker/Dockerfile -t symphony-akida .
+docker run --rm --entrypoint /usr/local/bin/verify-image symphony-akida --full
 
 # 4. launch the cluster in serial-http mode — auto-sizes to healthy chips, capped at 7
 ./launch/up.sh serial-http-round-robin

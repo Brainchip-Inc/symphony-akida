@@ -67,7 +67,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
 
 # 3. build the image (bakes all three app backends)
-docker build -f docker/Dockerfile -t symphony-akida-demo:local .
+docker build --build-arg ACCEPT_IBM_LICENSE=yes -f docker/Dockerfile -t symphony-akida .
 
 # 4. optional: symlink any VOC test kits you have, for real frames and mAP
 #    (skip it and the demo runs on the committed random set instead)
@@ -108,8 +108,7 @@ offers all of them in one dropdown. Symlink your kits in there once and every la
 up; with none, the demo runs on random frames and says so.
 
 **Editing code.** `src/common/`, `service/` and `client/` are **baked into the image**, so a
-change there only takes effect after `docker build -f docker/Dockerfile -t symphony-akida-demo:local .`
-followed by a relaunch. The dashboard, `launch/` and `scripts/` run from the working tree and
+change there only takes effect after a rebuild (step 3 above) followed by a relaunch. The dashboard, `launch/` and `scripts/` run from the working tree and
 need neither.
 </details>
 
@@ -223,9 +222,9 @@ Three things about running it that each cost real accuracy to get wrong:
   22.70 against 49.14. Plain NMS cannot weld two halves of an object together, and cannot tell a
   duplicate from a fragment.
 
-Requires **akida 2.19.2** — the `.fbz` is serialized by it and 2.19.1 refuses to deserialize it,
-so `docker/Dockerfile` upgrades the runtime and the image must be rebuilt after pulling this
-change.
+Requires **akida 2.19.2** — the `.fbz` is serialized by it and 2.19.1 refuses to deserialize it.
+`docker/Dockerfile` pins that version into `/opt/akida-venv`, so rebuild the image after pulling
+a change that touches `docker/`.
 </details>
 
 <details>
@@ -349,8 +348,14 @@ the frame (`aeroplane`, `train`) and clearly **helps** medium or numerous ones (
 - **Chip stuck (DMA timeout):** `sudo modprobe -r akida-pcie && sudo modprobe akida-pcie`,
   relaunch. Avoid driving a chip from two processes at once — don't run
   `scripts/verify_reference.sh` while the cluster is up.
-- **`Cannot deserialize the model: created with Akida 2.19.2`:** the image predates the akida
-  upgrade. Rebuild it: `docker build -f docker/Dockerfile -t symphony-akida-demo:local .`
+- **`Cannot deserialize the model: created with Akida 2.19.2`:** the image was built with an
+  older akida pin. Check with `docker run --rm --entrypoint /opt/python3.12/bin/python3.12
+  symphony-akida -c 'import akida;print(akida.__version__)'`, then rebuild:
+  `docker build --build-arg ACCEPT_IBM_LICENSE=yes -f docker/Dockerfile -t symphony-akida .`
 - **Fewer nodes than chips:** CE caps the cluster at 64 cores → master + 7 compute; extra chips
   idle. `--nodes` can only go down from there.
+- **Anything looks structurally wrong with the image:**
+  `docker run --rm --entrypoint /usr/local/bin/verify-image symphony-akida --full` — it names
+  the broken invariant (the `soamapi` import, the akida import, an `ldd` gap, PKI expiry, a
+  `7.3.2` literal that no longer matches the tree).
 </details>
