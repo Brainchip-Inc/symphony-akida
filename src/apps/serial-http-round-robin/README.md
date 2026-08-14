@@ -41,9 +41,8 @@ docker run --rm --entrypoint /usr/local/bin/verify-image symphony-akida --full
 # 4. launch the cluster in serial-http mode — auto-sizes to healthy chips, capped at 7
 ./scripts/launch/up.sh serial-http-round-robin
 
-# 5. open the dashboard (sizes the node list to the chip count)
-AKIDA_NODE_COUNT=$(ls -d /dev/akida* 2>/dev/null | wc -l) \
-  FLASK_PORT=5001 uv run python src/apps/serial-http-round-robin/dashboard/app.py
+# 5. open the dashboard -- sizes the node list to the chips up.sh actually launched
+./src/apps/serial-http-round-robin/dashboard/run_dashboard.sh
 #   then browse http://localhost:5001
 ```
 
@@ -122,5 +121,6 @@ raise it to run more.
 - **Chip stuck (DMA timeout):** `sudo modprobe -r akida_pcie && sudo modprobe akida_pcie`, relaunch.
 - **Dashboard shows all nodes down:** confirm you launched with `serial-http-round-robin`
   (the batch mode does not publish per-node ports) and that `AKIDA_NODE_COUNT` matches the
-  chip count.
+  node count `up.sh` reported -- which is the healthy chip count capped at 7, not the raw
+  number of `/dev` nodes.
 </details>
