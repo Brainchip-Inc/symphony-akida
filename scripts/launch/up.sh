@@ -293,24 +293,9 @@ elif [ "$APP" = "image-shard-inference" ]; then
     console_hint
     log "Run the dashboard:"
     log "    uv run python src/apps/image-shard-inference/dashboard/app.py   # http://localhost:5001"
-    log "or drive it from the CLI:"
-    log "    docker exec symphony-master /opt/akida-shard-client/run_client.sh --count 200"
-    # The scoring hint names the biggest set that carries ground truth, however it got prepared.
-    best_set=""; best_n=0
-    for side in "$SHARED"/samples/*.samples.json; do
-        [ -f "$side" ] || continue
-        grep -q '"has_ground_truth": *true' "$side" || continue
-        n=$(sed -n 's/.*"count": *\([0-9]*\).*/\1/p' "$side")
-        [ "${n:-0}" -gt "$best_n" ] && { best_n="$n"; best_set="$(basename "$side" .samples.json)"; }
-    done
-    if [ -n "$best_set" ]; then
-        # --ordered so frame i is sample i, and --post-thresh 0 because the published mAP is
-        # measured with no post-merge gate.
-        log "or score a real test kit end to end:"
-        log "    docker exec symphony-master /opt/akida-shard-client/run_client.sh \\"
-        log "        --samples $best_set --count $best_n --ordered --post-thresh 0 --dump"
-        log "    uv run python scripts/eval_shard_map.py"
-    else
+    # Not a usage hint but a warning: without ground truth the run still exercises every
+    # stage, so the missing half of the demo stays invisible until the mAP comes back empty.
+    if ! grep -q '"has_ground_truth": *true' "$SHARED"/samples/*.samples.json 2>/dev/null; then
         log "NOTE: no test kit found, so the only sample set is random input -- every stage and"
         log "      every throughput number is exercised, but there is nothing to detect and no"
         log "      mAP. Symlink a kit into data/voc/ and relaunch (see data/voc/README.md)."
