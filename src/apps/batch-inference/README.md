@@ -53,7 +53,7 @@ docker exec symphony-master /opt/akida-client/run_client.sh --model kws_keyword_
 <details>
 <summary><b>Models</b></summary>
 
-Models that map `hw_only` on the AKD1000s (in `models/`, Git LFS). The dashboard currently
+Models that map `hw_only` on the fleet's chips (in `models/`, Git LFS). The dashboard currently
 surfaces only KWS + VWW (shared allowlist `src/common/models.py`); `surface_search_classifier`
 stays in `models/` but is hidden from the UI for now:
 
@@ -63,7 +63,7 @@ stays in `models/` but is hidden from the UI for now:
 | `vww_person_detect` | 96×96×3 | person / background | ✅ |
 | `surface_search_classifier` | 8×8×1 | 7 classes | hidden |
 
-Add more by dropping an AKD1000-mappable `.fbz` (+ a `<name>_meta.json` with `input_shape`/`class_names`)
+Add more by dropping a chip-mappable `.fbz` (+ a `<name>_meta.json` with `input_shape`/`class_names`)
 into `models/` and adding its stem to `SHOWN_MODELS` in `src/common/models.py`.
 </details>
 

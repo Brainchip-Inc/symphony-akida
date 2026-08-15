@@ -8,8 +8,10 @@ session that Symphony fans **concurrently** across every chip. Run them one afte
 other to show the difference.
 
 Three things that were wrong in the original are fixed here:
-- **On-chip for real** — each node maps the model with `hw_only=True` on its AKD1000
-  (via the shared `akida_chip` core), so the **ON-CHIP · AKD1000** badge is truthful.
+- **On-chip for real** — each node maps the model with `hw_only=True` on its own chip
+  (via the shared `akida_chip` core), so the **ON-CHIP** badge is truthful, and the device
+  beside it is the one that node actually holds (`AKD1500` or `AKD1000`, read from the
+  chip's own `HwVersion`, never a fixed string).
 - **KWS + VWW only** — the model list and dataset picker are restricted to those two.
 - **Real `.npz` samples** — the workload is fed from the same `.npz`-derived samples the
   batch app uses (`prepare_samples.py` → `<model>.bin`), not the old fat JSON int-lists.
@@ -119,8 +121,9 @@ raise it to run more.
 - **Fewer nodes than chips:** Community Edition caps the cluster at 64 cores → master + 7
   compute; extra chips idle (logged at launch).
 - **Chip stuck (DMA timeout):** `sudo modprobe -r akida_pcie && sudo modprobe akida_pcie`, relaunch.
-- **Dashboard shows all nodes down:** confirm you launched with `serial-http-round-robin`
-  (the batch mode does not publish per-node ports) and that `AKIDA_NODE_COUNT` matches the
-  node count `up.sh` reported -- which is the healthy chip count capped at 7, not the raw
-  number of `/dev` nodes.
+- **Dashboard shows all nodes down:** confirm you launched with `serial-http-round-robin` --
+  the batch mode does not publish per-node ports, so there is nothing to talk to. The
+  dashboard reads the node list and its ports off the running containers, so it cannot
+  disagree with `up.sh` any more; if docker is not reachable from where you run it, set
+  `AKIDA_NODES` (explicit URLs) or `AKIDA_NODE_COUNT` (ports 8790, 8791, ...) yourself.
 </details>

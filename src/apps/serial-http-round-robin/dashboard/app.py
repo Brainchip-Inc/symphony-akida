@@ -13,22 +13,27 @@ per-node Akida HTTP inference servers (one per compute chip, published on host p
     concurrent SOAM fan-out)
 
 It differs from the archived original in three fixed behaviours: inference now genuinely
-maps on the AKD1000 (so the ON-CHIP badge is truthful), only KWS + VWW are shown, and the
+maps on the chip (so the ON-CHIP badge is truthful), only KWS + VWW are shown, and the
 workload is fed from the real .npz samples (via prepare_samples.py's <model>.bin) instead
 of the old fat *.samples.json int-lists.
 
-Run it through run_dashboard.sh (from the repo, deps already installed via uv): it sizes the
-node list to the chips up.sh actually launched -- both chip families, capped at 7 for the CE
-core limit -- and serves http://localhost:5001. Counting /dev nodes by hand gets this wrong
-on a mixed host, so to override, use the count up.sh prints at the end of launch:
-    AKIDA_NODE_COUNT=7 uv run python src/apps/serial-http-round-robin/dashboard/app.py
+Alone among the three dashboards this one has a live channel to every node -- /health -- so
+its Compute-nodes card is built from what each chip says about itself rather than from
+docker. The card, its wording and the theme are the shared ones every app uses
+(src/common/dashboard_ui.py), so the three demos read as one product.
+
+Run it through run_dashboard.sh (from the repo, deps already installed via uv): it discovers
+the nodes and their published ports from the running containers, and serves
+http://localhost:5001. To point it somewhere else, or when docker is not reachable:
+    AKIDA_NODES=http://host-a:8790,http://host-b:8790 uv run python .../dashboard/app.py
+    AKIDA_NODE_COUNT=7 uv run python .../dashboard/app.py     # ports 8790..8796
 """
 import json
 import os
 import sys
 import time
 
-from flask import Flask, jsonify, render_template_string, request
+from flask import Flask, jsonify, request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
@@ -36,6 +41,8 @@ sys.path.insert(0, os.path.join(HERE, "..", "client"))     # akida_client (HTTP 
 sys.path.insert(0, os.path.join(REPO, "src", "common"))    # shared KWS+VWW allowlist
 from akida_client import AkidaServiceClient, AkidaServiceError  # noqa: E402
 import models as allowlist  # noqa: E402
+import dashboard_ui as ui  # noqa: E402  shared theme + Compute-nodes card
+import fleet  # noqa: E402  container roster (node names + published ports)
 
 # Prepared samples (<model>.bin + <model>.samples.json) that prepare_samples.py writes
 # from the .npz into the repo-local shared dir. Same artefacts the SOAM client consumes.
@@ -48,20 +55,32 @@ SHARED_MODELS = os.environ.get("AKIDA_SHARED_MODELS",
 LIMIT = int(os.environ.get("AKIDA_SAMPLE_LIMIT", "200"))
 
 
+def _roster():
+    """The compute containers that publish a per-node HTTP port, or [] if docker cannot say."""
+    try:
+        return [n for n in fleet.roster() if n["url"]]
+    except Exception:
+        return []
+
+
 def _discover_nodes():
-    """Per-node URL list, sized to the chip count (matches up.sh's 8790+j publishing).
+    """Per-node URL list.
 
     Resolution order: AKIDA_NODES (explicit CSV) -> AKIDA_NODE_COUNT (one URL per chip on
-    AKIDA_PORT_BASE+i, default base 8790) -> fallback three nodes on 8790-8792.
+    AKIDA_PORT_BASE+i) -> the running containers' actual published ports -> three nodes on
+    8790-8792. The container roster is preferred over counting /dev nodes on the host, which
+    is what this used to do and which gets the count wrong on a mixed AKD1500/AKD1000 host --
+    and it finds a node published on a port that no PORT_BASE+j arithmetic would predict.
     """
     explicit = os.environ.get("AKIDA_NODES")
     if explicit is not None:
         return [u.strip() for u in explicit.split(",") if u.strip()]
-    count = os.environ.get("AKIDA_NODE_COUNT")
     base = int(os.environ.get("AKIDA_PORT_BASE", "8790"))
+    count = os.environ.get("AKIDA_NODE_COUNT")
     if count:
         return ["http://localhost:%d" % (base + i) for i in range(int(count))]
-    return ["http://localhost:%d" % (base + i) for i in range(3)]
+    urls = [n["url"] for n in _roster()]
+    return urls or ["http://localhost:%d" % (base + i) for i in range(3)]
 
 
 NODES = _discover_nodes()
@@ -84,16 +103,57 @@ def live_clients():
     return out
 
 
+def _node_record(url, health, roster_by_url):
+    """One node in the shape src/common/dashboard_ui.py's renderFleet() consumes.
+
+    Built from /health, which is this app's advantage: it is the chip's own account of
+    itself, live, including whether the model really mapped hw_only.
+    """
+    known = roster_by_url.get(url) or {}
+    if health is None:
+        return {"name": known.get("name") or url.replace("http://", ""),
+                "host": known.get("host"), "chip_node": known.get("chip_node"),
+                "product": known.get("product"), "device": None, "url": url,
+                "state": "down", "lines": [url.replace("http://", "")], "badges": []}
+
+    host = health.get("host") or ""
+    mapped = bool(health.get("akida_mapped"))
+    lines = ["model: " + (health.get("model") or "—")]
+    if health.get("akida_version"):
+        lines.append("akida " + health["akida_version"])
+    if mapped:
+        badges = [{"text": "ON-CHIP", "kind": "hw"}]
+    elif health.get("model"):
+        badges = [{"text": "SOFTWARE (CPU)", "kind": "sw"}]
+    elif health.get("hardware_present"):
+        badges = [{"text": "chip attached", "kind": "on"}]
+    else:
+        badges = [{"text": "no chip", "kind": "sw"}]
+    return {
+        "name": host.replace(".local", "") or known.get("name") or url.replace("http://", ""),
+        "host": host or known.get("host"),
+        "chip_node": health.get("chip_node") or known.get("chip_node"),
+        "product": health.get("product") or known.get("product"),
+        "device": health.get("device"),
+        "url": url,
+        "state": "ready" if mapped else "idle",
+        "lines": lines,
+        "badges": badges,
+    }
+
+
 # ---- API ----
 @app.get("/api/fleet")
 def api_fleet():
-    fleet = []
+    roster_by_url = {n["url"]: n for n in _roster()}
+    nodes = []
     for c in clients():
         try:
-            fleet.append({"url": c.base_url, "up": True, **c.health()})
-        except AkidaServiceError as e:
-            fleet.append({"url": c.base_url, "up": False, "error": str(e)})
-    return jsonify({"nodes": fleet})
+            health = c.health()
+        except AkidaServiceError:
+            health = None
+        nodes.append(_node_record(c.base_url, health, roster_by_url))
+    return jsonify({"nodes": nodes, "summary": fleet.summary(nodes), "error": None})
 
 
 @app.get("/api/models")
@@ -202,7 +262,7 @@ def api_run_samples():
             rows.append({"i": i, "node": r["host"], "cls": r["cls"],
                          "cls_name": r["cls_name"], "us": r["inference_us"],
                          "hardware": r.get("hardware"), "mode": r.get("mode"),
-                         "device": r.get("device")})
+                         "device": r.get("device"), "product": r.get("product")})
             hist[r["cls_name"]] = hist.get(r["cls_name"], 0) + 1
         except AkidaServiceError as e:
             rows.append({"i": i, "node": c.base_url, "error": str(e)})
@@ -220,90 +280,52 @@ def api_run_samples():
 # ---- UI ----
 @app.get("/")
 def index():
-    return render_template_string(PAGE, nodes=NODES, shared=SHARED_MODELS)
+    return PAGE
 
 
-PAGE = r"""<!doctype html><html><head><meta charset=utf-8>
-<title>SymAkida — Neuromorphic Model Service</title>
-<style>
- :root{--bg:#0b0e14;--panel:#141925;--line:#222b3d;--txt:#dbe3f0;--mut:#7b8aa6;--acc:#4f9cff;--ok:#36d399;--warn:#fbbd23;--err:#f87272}
- *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 ui-monospace,Menlo,Consolas,monospace}
- header{padding:16px 22px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:14px}
- header h1{font-size:18px;margin:0;letter-spacing:.5px} header .sub{color:var(--mut)}
- main{max-width:1100px;margin:0 auto;padding:22px;display:grid;gap:22px}
- .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
- .panel h2{margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--mut)}
- .fleet{display:flex;gap:12px;flex-wrap:wrap}
- .node{border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:200px;background:#0f1421}
- .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
- .up{background:var(--ok)} .down{background:var(--err)}
- table{width:100%;border-collapse:collapse} th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
- th{color:var(--mut);font-weight:600;font-size:12px}
- button{background:#1c2333;color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:5px 11px;cursor:pointer;font:inherit}
- button:hover{border-color:var(--acc)} button.acc{background:var(--acc);color:#04121f;border-color:var(--acc);font-weight:700}
- button.danger:hover{border-color:var(--err)}
- .cur{color:var(--ok)} .pill{font-size:11px;color:var(--mut);border:1px solid var(--line);border-radius:20px;padding:1px 8px}
- .hw{color:#04121f;background:var(--ok);border-radius:20px;padding:1px 9px;font-size:11px;font-weight:700}
- .sw{color:#04121f;background:var(--warn);border-radius:20px;padding:1px 9px;font-size:11px;font-weight:700}
- .ready{color:var(--ok);border:1px solid var(--ok);border-radius:20px;padding:1px 9px;font-size:11px}
- input[type=text]{background:#0f1421;border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:6px 9px;width:420px;font:inherit}
- .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
- .bar{height:14px;background:var(--acc);border-radius:3px}
- .muted{color:var(--mut)} .mono{font-variant-numeric:tabular-nums}
- #log{white-space:pre-wrap;color:var(--mut);max-height:120px;overflow:auto;font-size:12px}
-</style></head><body>
-<header><h1>◈ SymAkida</h1><span class=sub>neuromorphic model service · load / unload / hot-swap on the Symphony Akida fleet</span></header>
-<main>
- <div class=panel><h2>Fleet</h2><div class=fleet id=fleet>…</div></div>
- <div class=panel><h2>Models <span class=muted id=shared></span></h2>
-   <table id=models><thead><tr><th>model</th><th>input</th><th>classes</th><th>size</th><th></th></tr></thead><tbody></tbody></table>
-   <div class=row style=margin-top:12px>
-     <button class=danger onclick=unload()>Unload all</button>
-     <span class=muted>·</span>
-     <input type=text id=stagepath placeholder="/path/to/local/model.fbz">
-     <button onclick=stage()>Stage local .fbz</button>
-   </div>
- </div>
- <div class=panel><h2>Sample workload across the chips</h2>
-   <div class=row><select id=ds style="background:#0f1421;color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:6px"></select>
-     <button class=acc onclick=runsamples()>▶ Run across fleet</button>
-     <span id=runsum class=muted></span></div>
-   <div id=hist style=margin:14px:0></div>
-   <table id=results style=margin-top:10px><thead><tr><th>#</th><th>node</th><th>class</th><th>latency µs</th><th>ran on</th></tr></thead><tbody></tbody></table>
- </div>
- <div class=panel><h2>Log</h2><div id=log></div></div>
-</main>
-<script>
+APP_CSS = """
+  .panelrow { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:12px; }
+  .pill { font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:20px;
+          padding:1px 8px; }
+  .cur { color:var(--good); }
+  #log { white-space:pre-wrap; color:var(--muted); max-height:120px; overflow:auto;
+         font-family:var(--mono); font-size:12px; }
+  #hist .row .name { width:130px; }
+"""
+
+APP_HTML = """
+  <div class="card"><h2>Models<span class="aside" id="shared"></span></h2>
+    <table id="models"><thead><tr><th>model</th><th>input</th><th>classes</th><th>size</th><th></th></tr></thead><tbody></tbody></table>
+    <div class="panelrow">
+      <button class="ghost danger" onclick="unload()">Unload all</button>
+      <span class="muted">·</span>
+      <input type="text" id="stagepath" placeholder="/path/to/local/model.fbz" style="width:420px">
+      <button class="ghost" onclick="stage()">Stage local .fbz</button>
+    </div>
+  </div>
+  <div class="card"><h2>Sample workload across the chips</h2>
+    <div class="panelrow" style="margin-top:0">
+      <select id="ds"></select>
+      <button onclick="runsamples()">▶ Run across fleet</button>
+      <span id="runsum" class="muted"></span>
+    </div>
+    <div id="hist" style="margin:14px 0"></div>
+    <table id="results" style="margin-top:10px"><thead><tr><th>#</th><th>node</th><th>class</th><th>latency µs</th><th>ran on</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="card"><h2>Log</h2><div id="log"></div></div>
+"""
+
+APP_JS = """
 const $=s=>document.querySelector(s), api=(p,b)=>fetch(p,b?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}:{}).then(r=>r.json());
-function log(m){$('#log').textContent=('['+new Date().toLocaleTimeString()+'] '+m+'\n')+$('#log').textContent;}
+function log(m){$('#log').textContent=('['+new Date().toLocaleTimeString()+'] '+m+'\\n')+$('#log').textContent;}
 async function refresh(){
   const dsSel=$('#ds').value;
-  const f=await api('/api/fleet');
-  $('#fleet').innerHTML=f.nodes.map(n=>{
-    let badge='';
-    if(n.up){
-      if(n.model){
-        badge = n.akida_mapped
-          ? `<span class=hw>● ON-CHIP · AKD1000</span> <span class=muted>${n.device||''}</span>`
-          : `<span class=sw>▲ SOFTWARE (CPU)</span> <span class=muted title="${(n.map_error||'').replace(/"/g,'')}">not on v1 silicon</span>`;
-      } else {
-        badge = n.hardware_present
-          ? `<span class=ready>◆ AKD1000 attached</span> <span class=muted>${n.device||''} · idle</span>`
-          : `<span class=sw>no chip</span>`;
-      }
-    }
-    return `<div class=node><span class="dot ${n.up?'up':'down'}"></span>${n.url.replace('http://','')}<br>
-      <span class=muted>${n.up?(n.host||''):'down'}</span><br>
-      ${n.up?('model: <b class='+(n.model?'cur':'muted')+'>'+(n.model||'—')+'</b>'):''}<br>
-      ${badge}
-      ${n.up&&n.akida_version?'<br><span class=pill>akida '+n.akida_version+'</span>':''}</div>`;
-  }).join('');
+  await pollFleet();
   const m=await api('/api/models'); const cur=m.current&&m.current.name;
-  $('#shared').textContent=' ';
-  $('#models tbody').innerHTML=(m.models||[]).map(x=>`<tr><td>${x.name} ${x.name===cur?'<span class=pill style="color:var(--ok)">current</span>':''}</td>
+  $('#models tbody').innerHTML=(m.models||[]).map(x=>`<tr><td>${x.name} ${x.name===cur?'<span class=pill style="color:var(--good)">current</span>':''}</td>
     <td class=mono>${(x.input_shape||[]).join('×')||'?'}</td><td>${x.num_classes||'?'} <span class=muted>${(x.class_names||[]).slice(0,4).join(', ')}${(x.class_names||[]).length>4?'…':''}</span></td>
     <td class=mono>${x.size_bytes?(x.size_bytes/1024).toFixed(0)+'k':''}</td>
-    <td><button onclick="load('${x.name}')">${x.name===cur?'Reload':'Load'}</button></td></tr>`).join('')||'<tr><td colspan=5 class=muted>no models staged</td></tr>';
+    <td><button class=ghost onclick="load('${x.name}')">${x.name===cur?'Reload':'Load'}</button></td></tr>`).join('')||'<tr><td colspan=5 class=muted>no models staged</td></tr>';
   const s=await api('/api/samples'); $('#ds').innerHTML=(s.datasets||[]).map(d=>`<option value="${d.file}">${d.model} — ${d.n} samples (${d.input_shape.join('×')})</option>`).join('');
   if(dsSel) $('#ds').value=dsSel;
 }
@@ -315,16 +337,41 @@ async function runsamples(){const f=$('#ds').value;if(!f)return;log('run workloa
   if(!r.ok){$('#runsum').textContent='error: '+r.error;return;}
   const nhw=r.rows.filter(x=>x.hardware).length;
   $('#runsum').innerHTML=`${r.rows.length} samples · ${r.nodes_used} node(s) · ${r.wall_s}s wall · avg ${r.avg_us}µs/infer · `+
-    (nhw===r.rows.length?`<span class=hw>all ${nhw} ON-CHIP</span>`:`<span class=sw>${nhw}/${r.rows.length} on-chip</span>`);
-  const mx=Math.max(1,...Object.values(r.histogram));
-  $('#hist').innerHTML=Object.entries(r.histogram).map(([k,v])=>`<div class=row><span style=width:110px>${k}</span><div class=bar style=width:${v/mx*300}px></div><span class=mono>&nbsp;${v}</span></div>`).join('');
-  $('#results tbody').innerHTML=r.rows.map(x=>`<tr><td class=mono>${x.i}</td><td>${(x.node||'').replace('.local','')}</td><td>${x.error?('<span style=color:var(--err)>'+x.error+'</span>'):x.cls_name}</td><td class=mono>${x.us||''}</td><td>${x.hardware?'<span class=hw>AKD1000</span>':(x.mode==='software'?'<span class=sw>CPU</span>':'')}</td></tr>`).join('');
+    (nhw===r.rows.length?`<span class="badge hw">all ${nhw} ON-CHIP</span>`:`<span class="badge sw">${nhw}/${r.rows.length} on-chip</span>`);
+  bars($('#hist'), Object.entries(r.histogram), '');
+  // Per-node tallies onto the node cards, the same way the other two dashboards do it.
+  const work={};
+  r.rows.forEach(x=>{ if(!x.node||x.error) return;
+    const w = work[x.node] || (work[x.node]={tasks:0,_us:0});
+    w.tasks++; w._us += (x.us||0); });
+  Object.values(work).forEach(w=>{ w.avg_ms = +(w._us/w.tasks/1000).toFixed(3); w.unit='samples'; });
+  renderFleet(null, work);
+  $('#results tbody').innerHTML=r.rows.map(x=>`<tr><td class=mono>${x.i}</td><td>${(x.node||'').replace('.local','')}</td><td>${x.error?('<span class=err>'+x.error+'</span>'):x.cls_name}</td><td class=mono>${x.us||''}</td><td>${x.hardware?'<span class="badge hw">'+x.hardware+'</span>':(x.mode==='software'?'<span class="badge sw">CPU</span>':'')}</td></tr>`).join('');
   log('workload done: '+r.rows.length+' inferences');refresh();}
 refresh();setInterval(refresh,5000);
-</script></body></html>"""
+"""
+
+# Concatenated, never %-formatted: the CSS is full of {braces} and the JS of ${literals}
+# and `width:...%`, all of which a format string would mangle. See src/common/dashboard_ui.py.
+PAGE = ('<!doctype html>\n<html><head><meta charset="utf-8">'
+        '<title>SymAkida — Neuromorphic Model Service</title>\n<style>'
+        + ui.BASE_CSS + APP_CSS +
+        '</style></head><body>\n'
+        '<header>\n'
+        '  <h1>SymAkida &mdash; neuromorphic model service</h1>\n'
+        '  <p>Load, unload and hot-swap a model on every Akida chip in the fleet, then run a'
+        ' sample workload round-robin across them &mdash; one HTTP /infer at a time, the'
+        ' deliberate contrast with the batch-inference app\'s concurrent SOAM fan-out.</p>\n'
+        '</header>\n<main>\n'
+        + ui.FLEET_HTML + APP_HTML +
+        '</main>\n<script>\n'
+        + ui.FLEET_JS + ui.BARS_JS + APP_JS +
+        '\n</script>\n</body></html>')
 
 
 if __name__ == "__main__":
     port = int(os.environ.get("FLASK_PORT", "5001"))
     print("SymAkida GUI on http://localhost:%d  (nodes: %s)" % (port, ", ".join(NODES)))
-    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    # threaded (the Flask default) is load-bearing: /api/run_samples blocks this request for
+    # the whole workload, and the fleet card has to keep polling while it does.
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False, threaded=True)
