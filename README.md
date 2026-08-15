@@ -22,7 +22,7 @@ Each app's README is the full clone → build → launch walkthrough.
 <details>
 <summary><b>Setup (once — shared by all three apps)</b></summary>
 
-Run on the host with the Akida cards (`/dev/akida*` + the `akida_pcie` driver) and Docker.
+Run on the host with the Akida cards (`/dev/akd1500_*` and/or `/dev/akida*` + the `akida_pcie` driver) and Docker.
 The build needs network access to Docker Hub, PyPI and GitHub releases; it needs **no**
 private registry and no IBM credentials.
 
