@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Run scripts/verify_reference.py inside the demo image on one Akida chip.
 #
-#   scripts/verify_reference.sh                                  # 500 frames of the quickest kit
+#   scripts/verify_reference.sh                                  # the committed kit, 500 frames max
 #   scripts/verify_reference.sh --frames all                     # all of it
-#   scripts/verify_reference.sh --npz data/voc/voc2007_test_r448.npz --frames all
+#   scripts/verify_reference.sh --npz ~/data/voc/VOCdevkit/voc2007_test_r448.npz --frames all
 #
 # A throwaway privileged container with exactly one chip exposed (the probe_chips.sh pattern),
 # the repo's models/ and scripts/ mounted read-only, and the test kit's directory mounted at
@@ -12,7 +12,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="${IMAGE:-symphony-akida}"
-KITS_DIR="${AKIDA_KITS_DIR:-$HERE/data/voc}"
+KIT_DIR="${AKIDA_KIT_DIR:-$HERE/data/voc2007}"
 NPZ="${AKIDA_TEST_NPZ:-}"
 CHIP="${AKIDA_CHIP_NODE:-}"
 
@@ -26,15 +26,20 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$NPZ" ]; then
-    # Smallest kit in data/voc, so the default check is the quick one. -L to size the symlink
-    # target rather than the link, since kits are symlinked in.
-    NPZ=$( { for f in "$KITS_DIR"/*.npz; do [ -f "$f" ] && stat -Lc '%s %n' "$f"; done; } \
-           | sort -n | head -1 | cut -d' ' -f2- ) || true
+    # A dataset folder holds exactly one .npz, so the committed kit is simply what is in there.
+    NPZ=$( { for f in "$KIT_DIR"/*.npz; do [ -f "$f" ] && echo "$f"; done; } | head -1 ) || true
 fi
 [ -n "$NPZ" ] && [ -f "$NPZ" ] \
-    || { echo "No test kit in $KITS_DIR (see data/voc/README.md); pass --npz <path>." >&2; exit 1; }
-# Resolve before mounting: kits in data/voc are symlinks, and a bind mount of that directory
-# would carry the link into the container without its target.
+    || { echo "No test kit in $KIT_DIR (see data/README.md); pass --npz <path>." >&2; exit 1; }
+# ~130 bytes of pointer text bind-mounts and opens like a file, then fails deep inside TestKit
+# with a zip error. Catch it here, where the fix is one command.
+if [ "$(stat -Lc %s "$NPZ")" -lt 1024 ] && read -r first < "$NPZ" 2>/dev/null \
+   && [ "$first" = "version https://git-lfs.github.com/spec/v1" ]; then
+    echo "$NPZ is a Git LFS pointer, not the kit. Run: git lfs install && git lfs pull" >&2
+    exit 1
+fi
+# Resolve before mounting: a kit passed with --npz may be a symlink, and a bind mount of its
+# directory would carry the link into the container without its target.
 NPZ="$(realpath "$NPZ")"
 [ -f "$HERE/models/tiled_yolov2_voc.fbz" ] || { echo "No model; run 'git lfs pull'." >&2; exit 1; }
 

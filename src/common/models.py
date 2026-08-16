@@ -9,10 +9,11 @@ import os
 #
 # surface_search_classifier maps hw_only on AKD1500 (verified) so it is a real on-chip
 # model-management demo: load/unload/hot-swap it across the fleet and every node reports
-# ON-CHIP honestly. It has no prepared sample set though (no data/samples/*.npz for it),
-# so it does NOT appear in the serial-http workload dropdown, and the batch client falls
-# back to random uint8 for it -- real throughput, meaningless class histogram. Drop an
-# .npz into data/samples/ and up.sh prepares it like the other two.
+# ON-CHIP honestly. It ships without real samples, so data/surface_search_classifier/ holds
+# uniform noise instead -- committed, seeded and marked synthetic inside the .npz itself, so
+# both apps run it over the same bytes and both say plainly that the class histogram means
+# nothing while the throughput means everything. Replace that folder's .npz with real samples
+# of the same shape and it stops being flagged. See data/README.md.
 SHOWN_MODELS = ["kws_keyword_spotting_sparse", "vww_person_detect",
                 "surface_search_classifier"]
 

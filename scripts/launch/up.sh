@@ -38,14 +38,14 @@ Options
                    capped at the Community Edition 64-core limit of master + 7
                    compute, so 'all' on a bigger box leaves the extra chips idle.
   --dataset <npz>  image-shard-inference only: one extra test kit from outside
-                   data/voc. Not needed for the usual case, since every kit in
-                   data/voc is prepared automatically.
+                   data/. Not needed for the usual case; use it to score against
+                   the full 4,952-frame VOC split, which is too big to commit.
   -h, --help       show this and exit.
 
 Sample sets
-  The committed random set is always available, plus every .npz found in data/voc
-  (symlink your test kits in there; see data/voc/README.md). All of them appear in
-  the dashboard dropdown, and the client selects one with --samples <name>.
+  Every dataset folder under data/ is prepared automatically, each named after its
+  own folder (see data/README.md). All of them appear in the dashboard dropdown,
+  and the client selects one with --samples <name>.
 
 Environment overrides
   IMAGE            image to run                          (default symphony-akida)
@@ -56,7 +56,7 @@ Environment overrides
   AKIDA_PORT_BASE  serial-http: compute-j -> this + j    (default 8790)
   AKIDA_SHM_BYTES  per-node shared input buffer, bytes   (default 8388608)
   AKIDA_SHM_SIZE   docker /dev/shm size, >= the above    (default 128m)
-  AKIDA_KITS_DIR   where test kits are looked for        (default data/voc)
+  AKIDA_DATA_DIR   where dataset folders are looked for  (default data)
 
 Examples
   scripts/launch/up.sh                                    batch-inference on every chip
@@ -95,7 +95,7 @@ IMAGE="${IMAGE:-symphony-akida}"
 NETWORK="${NETWORK:-symcluster}"
 SHARED="$HERE/.cluster/shared"
 MODELS_SRC="$HERE/models"
-KITS_DIR="${AKIDA_KITS_DIR:-$HERE/data/voc}"   # test kits, symlinked in (data/voc/README.md)
+DATA_DIR="${AKIDA_DATA_DIR:-$HERE/data}"       # one folder per dataset (data/README.md)
 MAX_NODES="${MAX_NODES:-7}"          # CE 64-core cap: master + 7 compute = 64 cores
 CONSOLE_PORT="${CONSOLE_PORT:-8443}"
 PORT_BASE="${AKIDA_PORT_BASE:-8790}"      # serial-http: compute-j -> host port PORT_BASE+j
@@ -179,25 +179,38 @@ cp "$MODELS_SRC"/*.fbz "$MODELS_SRC"/*.json "$SHARED/models/" 2>/dev/null || tru
 log "seeded models: $(ls "$SHARED/models" | grep '\.fbz$' | tr '\n' ' ')"
 
 # --- seed sample sets (npz -> /shared/samples: <set>.bin + sidecar) ---------
-# Numpy-free clients read these; a model with no set falls back to random input. Two sources:
-# data/samples holds the small committed sets, so a fresh clone still demos; data/voc holds real
-# test kits, which are gigabytes and therefore symlinked in rather than committed. Every kit
-# found there becomes a sample set named after its own file, whatever that file is called.
+# Numpy-free clients read these; a model with no set falls back to random input. data/ is one
+# folder per dataset, each holding exactly one .npz (Git LFS): the folder names the set, and the
+# model is matched on the per-sample size. See data/README.md.
 prep() { ( cd "$HERE" && uv run python src/common/prepare_samples.py "$@" ) 2>&1 | sed 's/^/    /'; }
-have_npz() { ls "$1"/*.npz >/dev/null 2>&1; }
-if have_npz "$HERE/data/samples" || have_npz "$KITS_DIR" || [ -n "$DATASET" ]; then
+have_npz() { ls "$1"/*/*.npz >/dev/null 2>&1; }
+# A clone without `git lfs pull` leaves ~130 bytes of pointer text where each .npz should be.
+# Every dataset would then be skipped one by one, several screens up; say it once, up front.
+# `read` rather than grep: grep on a fetched 57 MiB kit would read all of it to not match, and a
+# `head -c | grep -q` pipeline can return 141 under the pipefail set at the top of this script.
+lfs_pointer() {
+    [ "$(stat -Lc %s "$1" 2>/dev/null || echo 999999)" -lt 1024 ] || return 1
+    read -r first < "$1" 2>/dev/null || return 1
+    [ "$first" = "version https://git-lfs.github.com/spec/v1" ]
+}
+pointers=""
+for f in "$DATA_DIR"/*/*.npz; do
+    [ -f "$f" ] && lfs_pointer "$f" && pointers="$pointers${pointers:+ }$f" || true
+done
+if [ -n "$pointers" ]; then
+    echo "Datasets are Git LFS pointers, not data. Run: git lfs install && git lfs pull" >&2
+    for f in $pointers; do echo "  $f" >&2; done
+    exit 1
+fi
+if have_npz "$DATA_DIR" || [ -n "$DATASET" ]; then
     if ! command -v uv >/dev/null 2>&1; then
         log "WARN: uv not found; skipping sample prep (clients will use random inputs)"
     else
-        prep --out "$SHARED/samples" || log "WARN: sample prep failed; clients will use random inputs"
-        if [ "$APP" = image-shard-inference ] && have_npz "$KITS_DIR"; then
-            log "preparing test kits from $(basename "$KITS_DIR")/ (a minute for the full split)"
-            prep --kits "$KITS_DIR" --out "$SHARED/samples" \
-                || log "WARN: test kit prep failed; the demo will run on random input"
-        fi
+        prep --data-dir "$DATA_DIR" --out "$SHARED/samples" \
+            || log "WARN: sample prep failed; clients will use random inputs"
         if [ -n "$DATASET" ]; then
             [ -f "$DATASET" ] || { echo "no such dataset: $DATASET" >&2; exit 1; }
-            log "preparing test kit $(basename "$DATASET")"
+            log "preparing test kit $(basename "$DATASET") (a minute for the full split)"
             prep --npz "$DATASET" --out "$SHARED/samples" \
                 || { echo "dataset prep failed" >&2; exit 1; }
         fi
@@ -296,9 +309,9 @@ elif [ "$APP" = "image-shard-inference" ]; then
     # Not a usage hint but a warning: without ground truth the run still exercises every
     # stage, so the missing half of the demo stays invisible until the mAP comes back empty.
     if ! grep -q '"has_ground_truth": *true' "$SHARED"/samples/*.samples.json 2>/dev/null; then
-        log "NOTE: no test kit found, so the only sample set is random input -- every stage and"
-        log "      every throughput number is exercised, but there is nothing to detect and no"
-        log "      mAP. Symlink a kit into data/voc/ and relaunch (see data/voc/README.md)."
+        log "NOTE: no sample set carries ground truth, so every stage and every throughput"
+        log "      number is exercised, but there is nothing to detect and no mAP. The VOC kit"
+        log "      ships in data/voc2007/ -- run 'git lfs pull' and relaunch (data/README.md)."
     fi
 else
     # serial-http-round-robin: each compute already started its HTTP server (START_HTTP=1).

@@ -13,18 +13,21 @@ reference row agree, the pipeline is exact -- independently of whether this scor
 the published number to the last decimal. Any drift in the scorer moves both rows together
 and cannot be mistaken for a pipeline regression.
 
-That matters here, because the reference row lands a hair above the kit's stored targets:
-+8.1e-5 mAP50, +1.6e-3 mAP75, +4.9e-4 mAP. This code is not the cause. Driving the reference
-MapEvaluation's own _compute_all_overlaps and _calc_avg_precisions over the same arrays
-reproduces this scorer bit for bit, and the overlap matrices are identical to the last ulp,
-with zero TP/FP decisions flipping at either threshold; detection ordering makes no difference
-either (stored, stable, and both quicksort dtypes all agree). The offset therefore comes from
-how the stored targets were generated upstream, not from scoring, and it applies equally to
-both rows.
+That matters on the full 4,952-frame split, where the reference row lands a hair above that
+kit's stored targets: +8.1e-5 mAP50, +1.6e-3 mAP75, +4.9e-4 mAP. This code is not the cause.
+Driving the reference MapEvaluation's own _compute_all_overlaps and _calc_avg_precisions over
+the same arrays reproduces this scorer bit for bit, and the overlap matrices are identical to
+the last ulp, with zero TP/FP decisions flipping at either threshold; detection ordering makes
+no difference either (stored, stable, and both quicksort dtypes all agree). The offset
+therefore comes from how those targets were generated upstream, not from scoring, and it
+applies equally to both rows.
+
+The committed data/voc2007 kit has no such offset: its targets were produced by this scorer
+over its own 100 frames, so the reference row lands on them exactly.
 
     uv run python scripts/eval_shard_map.py
     uv run python scripts/eval_shard_map.py --dump .cluster/shared/results/<run>.jsonl \\
-        --npz data/voc/voc2007_test_r448.npz
+        --npz data/voc2007/voc2007_test_r448_100.npz
 """
 import argparse
 import glob
@@ -183,7 +186,7 @@ def main():
             row = rows[name]
             print("%-11s %9.4f %9.4f %9.4f" % (name, row["map50"], row["map75"], row["map"]))
     if targets:
-        print("%-11s %9.4f %9.4f %9.4f   (published, whole split)"
+        print("%-11s %9.4f %9.4f %9.4f   (the kit's own stored targets)"
               % ("target", targets["map50"], targets["map75"], targets["map"]))
     if "reference" in rows:
         delta = max(abs(rows["fleet"][k] - rows["reference"][k])
@@ -195,7 +198,7 @@ def main():
             offset = max(abs(rows["reference"][k] - targets[k])
                          for k in ("map50", "map75", "map"))
             if offset >= 1e-6:
-                print("the reference row itself sits %.1e off the published target, so read "
+                print("the reference row itself sits %.1e off the kit's stored target, so read "
                       "the fleet row against it rather than against the target" % offset)
     elif not kit.has_reference:
         print("\n(this kit carries no reference detections to compare against)")

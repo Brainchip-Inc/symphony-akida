@@ -6,7 +6,7 @@ and submits one task per input sample; Symphony's session manager fans the tasks
 out across every compute node's Akida chip in parallel. It then reports the
 per-chip task distribution and throughput -- the multi-Akida advantage, measured.
 
-Inputs are real samples prepared under /shared/samples (<model>.bin + sidecar) and
+Inputs are real samples prepared under /shared/samples (<set>.bin + sidecar) and
 sent as raw bytes (binary soamapi message), not JSON int arrays -- ~4x smaller on
 the wire and no parsing. A model with no sample set falls back to random uint8.
 
@@ -62,21 +62,53 @@ def input_length(model):
     return n, shape
 
 
-def build_pool(model, n, count):
-    """A pool of raw-byte tensors to cycle through. Prefer prepared samples from
-    /shared/samples (<model>.bin + sidecar, read with the stdlib -- the 3.6
-    client has no numpy); otherwise fall back to random uint8 of the right size.
+def resolve_set(model):
+    """(set_name, sidecar) of the prepared sample set for a model, or None.
 
-    A prepared set is not automatically real: prepare_samples.py synthesises a random set
-    for a model that has no dataset, and flags it. Report that, or a noise run reads as a
-    real one in the dashboard and in this client's own summary."""
-    base = os.path.join(SAMPLES_DIR, model)
-    side_p, bin_p = base + ".samples.json", base + ".bin"
-    if os.path.isfile(side_p) and os.path.isfile(bin_p):
-        side = json.load(open(side_p))
+    Sets are named after their dataset folder (data/<dataset>/), not after the model, so the
+    .bin cannot be found by guessing a filename -- the sidecars are the index. More than one
+    set can feed the same model (up.sh --dataset adds one), so the choice has to be ordered and
+    stable: a real dataset beats synthetic noise, then the larger set, then by name. That is
+    the same order the shard dashboard sorts its dropdown by (image-shard-inference
+    dashboard/app.py list_datasets), so the two apps agree on which set is "the" one.
+    """
+    best = None
+    try:
+        names = sorted(os.listdir(SAMPLES_DIR))
+    except OSError:
+        return None
+    for name in names:
+        if not name.endswith(".samples.json"):
+            continue
+        try:
+            with open(os.path.join(SAMPLES_DIR, name)) as fh:
+                side = json.load(fh)
+        except (ValueError, IOError):
+            continue
+        if side.get("model") != model:
+            continue
+        set_name = side.get("set") or name[:-len(".samples.json")]
+        rank = (bool(side.get("random")), -int(side.get("count") or 0), set_name)
+        if best is None or rank < best[0]:
+            best = (rank, set_name, side)
+    return None if best is None else (best[1], best[2])
+
+
+def build_pool(model, n, count):
+    """A pool of raw-byte tensors to cycle through. Prefer the model's prepared set from
+    /shared/samples (<set>.bin + sidecar, read with the stdlib -- the 3.6 client has no
+    numpy); otherwise fall back to random uint8 of the right size.
+
+    A prepared set is not automatically real: one committed dataset is uniform noise, for a
+    model that ships without one, and its sidecar says so. Report that, or a noise run reads
+    as a real one in the dashboard and in this client's own summary."""
+    found = resolve_set(model)
+    if found is not None:
+        set_name, side = found
+        bin_p = os.path.join(SAMPLES_DIR, set_name + ".bin")
         per = int(side.get("per_sample_bytes", 0))
         avail = int(side.get("count", 0))
-        if per == n and avail > 0:
+        if per == n and avail > 0 and os.path.isfile(bin_p):
             k = max(1, min(avail, count))
             idx = list(range(avail))
             random.shuffle(idx)
@@ -87,9 +119,9 @@ def build_pool(model, n, count):
                     fh.seek(i * per)
                     pool.append(fh.read(per))
             kind = "random noise" if side.get("random") else "real"
-            return pool, "%s (%d of %d)" % (kind, k, avail)
-        print("[client] %s sample set mismatches model (per=%d n=%d); using random"
-              % (model, per, n), file=sys.stderr)
+            return pool, "%s %s (%d of %d)" % (set_name, kind, k, avail)
+        print("[client] set %s does not fit %s (per=%d n=%d); using random"
+              % (set_name, model, per, n), file=sys.stderr)
     k = max(1, min(count, 256))
     pool = [bytes(bytearray(random.getrandbits(8) for _ in range(n))) for _ in range(k)]
     return pool, "random"
