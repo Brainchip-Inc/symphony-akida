@@ -292,7 +292,12 @@ for f in /opt/akida-service/akida_worker.py \
     chk "python3.12 parses $(basename "$f")" "$PY312" -m py_compile "$f"
 done
 chk "/opt/akida-common imports under python3.12" bash -c \
-    "PYTHONPATH=$VENV_SP:/opt/akida-common $PY312 -c 'import akida_chip, models, worker_io, tiled_shard'"
+    "PYTHONPATH=$VENV_SP:/opt/akida-common $PY312 -c 'import akida_chip, models, worker_io, tiled_shard, akida_product, fleet, dashboard_ui'"
+# fleet.py and dashboard_ui.py only ever run on the host (the dashboards), but they ship in
+# this directory, so importing them here is what holds them to stdlib-only -- the same rule
+# models.py has always been under. A stray `import flask` fails the build, not the demo.
+chk "host-side common modules are stdlib-only" bash -c \
+    "$PY312 -c 'import sys; sys.path.insert(0, \"/opt/akida-common\"); import fleet, dashboard_ui, akida_product'"
 
 printf '[verify] complete: %d failure(s)\n' "$FAILED"
 [ "$FAILED" -eq 0 ] || exit 1

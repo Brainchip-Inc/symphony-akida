@@ -315,6 +315,6 @@ else
     log "cluster up (serial-http-round-robin)."
     console_hint
     log "Run the dashboard:"
-    log "    AKIDA_NODE_COUNT=$NODES uv run python src/apps/serial-http-round-robin/dashboard/app.py   # http://localhost:5001"
+    log "    uv run python src/apps/serial-http-round-robin/dashboard/app.py   # http://localhost:5001"
 fi
 log "Tear down with: scripts/launch/down.sh"

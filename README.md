@@ -1,9 +1,10 @@
 # Symphony + Akida — on-chip fleet inference
 
-Distribute AI inference across a fleet of **BrainChip Akida** AKD1000 devices on an **IBM
-Spectrum Symphony** (Community Edition) cluster. One master + one compute node per chip
-(capped at 7 — the CE 64-core limit); each node maps the model onto its chip
-(`hw_only=True`) and runs inference **on-silicon**.
+Distribute AI inference across a fleet of **BrainChip Akida** devices (AKD1500 and/or
+AKD1000) on an **IBM Spectrum Symphony** (Community Edition) cluster. One master + one
+compute node per chip (capped at 7, the CE 64-core limit); each node maps the model onto
+its chip (`hw_only=True`) and runs inference **on-silicon**. Every dashboard names the
+device each node actually holds, so a mixed fleet reports itself honestly.
 
 ## Three demos, one image
 

@@ -9,6 +9,11 @@ Everything shown comes from the run: the client dumps its merged detections, thi
 scores them with the same code scripts/eval_shard_map.py uses, and draws them on the very
 frames that were sent to the chips.
 
+The Compute-nodes card is the exception, and the reason the page is not blank before a run:
+src/common/fleet.py answers it host-side from `docker inspect` plus the service instance
+logs, so the six chips and their devices are on screen the moment you open the page. Same
+card, same wording, in all three app dashboards (src/common/dashboard_ui.py).
+
     uv run python src/apps/image-shard-inference/dashboard/app.py   # http://localhost:5001
 """
 import glob
@@ -28,7 +33,10 @@ from detection_map import evaluate, group_by_label, summarise  # noqa: E402
 from draw_detections import render  # noqa: E402
 from models import shard_visible  # noqa: E402  shard-app allowlist (tiled_yolov2_voc)
 from testkit import TestKit, scale_to_raw  # noqa: E402
+import dashboard_ui as ui  # noqa: E402  shared theme + Compute-nodes card
+import fleet  # noqa: E402  host-side node discovery
 
+APP = "image-shard-inference"
 MODELS_DIR = os.environ.get("AKIDA_MODELS_DIR", os.path.join(REPO, "models"))
 SHARED = os.environ.get("AKIDA_SHARED_DIR", os.path.join(REPO, ".cluster", "shared"))
 SAMPLES_DIR = os.path.join(SHARED, "samples")
@@ -160,6 +168,13 @@ def api_datasets():
     return jsonify({"models": list_models(), "datasets": list_datasets()})
 
 
+@app.route("/api/fleet")
+def api_fleet():
+    # Polled every 5s, so fleet.read() never raises -- it reports trouble in `error` and the
+    # card shows it. Returning 500 here would just spam the console every five seconds.
+    return jsonify(fleet.read(SHARED, APP))
+
+
 @app.route("/api/run", methods=["POST"])
 def api_run():
     body = request.get_json(force=True)
@@ -255,70 +270,29 @@ def index():
     return HTML
 
 
-HTML = """<!doctype html>
-<html><head><meta charset="utf-8"><title>Symphony + Akida shard inference</title>
-<style>
-  :root { --bg:#0f1420; --card:#1a2130; --line:#26304a; --fg:#e8edf5; --muted:#8b97ad;
-          --accent:#4fd1c5; --bar:#3b82f6; --warn:#fbbf24; --good:#34d399; --err:#f87171; }
-  * { box-sizing:border-box; }
-  body { margin:0; font:15px/1.5 system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--fg); }
-  header { padding:20px 28px; border-bottom:1px solid var(--line); }
-  header h1 { margin:0; font-size:20px; letter-spacing:-.01em; }
-  header p { margin:4px 0 0; color:var(--muted); font-size:13px; max-width:78ch; }
-  main { max-width:1100px; margin:0 auto; padding:24px 28px 56px; }
-  .controls { display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap;
-              background:var(--card); padding:18px; border-radius:12px; }
-  label { display:block; font-size:12px; color:var(--muted); margin-bottom:5px; }
-  select,input { background:#0f1420; color:var(--fg); border:1px solid #2b3550; border-radius:8px;
-                 padding:9px 11px; font:inherit; font-size:14px; }
-  button { background:var(--accent); color:#04201d; border:0; border-radius:8px; padding:10px 20px;
-           font-weight:600; cursor:pointer; font-size:14px; }
-  button:disabled { opacity:.5; cursor:default; }
-  .note { margin:16px 0 0; padding:12px 14px; border-radius:10px; font-size:13px;
-          border:1px solid var(--line); background:#151c2b; color:var(--muted); }
-  .note.warn { border-color:#5a4a12; background:#241d08; color:#f5d78e; }
-  .note b { color:var(--fg); }
-  .stats { display:flex; gap:14px; margin:20px 0; flex-wrap:wrap; }
-  .stat { background:var(--card); border-radius:12px; padding:16px 20px; flex:1; min-width:148px; }
-  .stat .n { font-size:27px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
-  .stat .l { color:var(--muted); font-size:12px; margin-top:2px; }
-  .stat .n small { font-size:14px; color:var(--muted); font-weight:400; }
-  .stat .sub { color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
-  .card { background:var(--card); border-radius:12px; padding:18px 20px; margin-bottom:16px; }
-  .card h2 { margin:0 0 14px; font-size:14px; color:var(--muted); font-weight:600;
-             text-transform:uppercase; letter-spacing:.04em; }
-  .card h2 .aside { text-transform:none; letter-spacing:0; font-weight:400; float:right; }
-  .row { display:flex; align-items:center; gap:10px; margin:6px 0; font-size:13px; }
-  .row .name { width:150px; color:var(--muted); }
-  .row .track { flex:1; background:#0f1420; border-radius:5px; overflow:hidden; height:20px; }
-  .row .fill { background:var(--bar); height:100%; border-radius:5px; }
-  .row .val { width:170px; text-align:right; font-variant-numeric:tabular-nums; }
-  table.map { border-collapse:collapse; font-variant-numeric:tabular-nums; }
-  table.map th, table.map td { padding:5px 16px 5px 0; text-align:right; font-size:14px; }
+APP_CSS = """
+  .controls { margin-bottom:16px; }
+  /* The accuracy table is a small figure block, not a full-width data table, so it opts out
+     of the shared table rules. */
+  table.map { width:auto; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  table.map th, table.map td { padding:5px 16px 5px 0; text-align:right; font-size:14px;
+                               border-bottom:0; }
   table.map th { color:var(--muted); font-weight:600; font-size:12px; }
   table.map td:first-child, table.map th:first-child { text-align:left; min-width:96px; }
   table.map tr.ours td { color:var(--good); font-weight:600; }
   table.map tr.tgt td { color:var(--muted); }
   .gal { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:12px; }
-  .gal figure { margin:0; background:#0f1420; border-radius:10px; overflow:hidden; border:1px solid var(--line); }
+  .gal figure { margin:0; background:var(--bg); border-radius:10px; overflow:hidden;
+                border:1px solid var(--line); }
   .gal img { display:block; width:100%; height:auto; }
   .gal figcaption { padding:7px 10px; font-size:12px; color:var(--muted);
                     display:flex; justify-content:space-between; gap:8px; }
   .toggle { display:flex; align-items:center; gap:7px; font-size:12px; color:var(--muted);
             text-transform:none; letter-spacing:0; font-weight:400; }
   .toggle input { width:14px; height:14px; accent-color:var(--accent); }
-  #msg { color:var(--muted); font-size:13px; margin:14px 0; }
-  .err { color:var(--err); }
-  @media (max-width:640px){ .row .name{width:104px} .row .val{width:118px} }
-</style></head><body>
-<header>
-  <h1>Symphony + Akida &mdash; image-shard inference</h1>
-  <p>Each 448&times;448 frame is split into six 224&times;224 tiles &mdash; four quadrants, an
-     overlapping centre, and the whole frame downscaled. Symphony fans the tiles across the Akida
-     chips (one on-chip inference each) and the stitch service merges them back into one result
-     for the frame.</p>
-</header>
-<main>
+"""
+
+APP_HTML = """
   <div class="controls">
     <div><label for="dataset">Sample set</label><select id="dataset"></select></div>
     <div><label for="count">Frames</label><input id="count" type="number" value="200" min="1" step="50" style="width:110px"></div>
@@ -344,8 +318,9 @@ HTML = """<!doctype html>
     <div class="card"><h2>Per-chip tile distribution</h2><div id="hosts"></div></div>
     <div class="card" id="clscard"><h2>Detected classes</h2><div id="classes"></div></div>
   </div>
-</main>
-<script>
+"""
+
+APP_JS = """
 let LAST = null;
 
 async function loadDatasets() {
@@ -381,13 +356,6 @@ function onDataset() {
        ${source ? 'from <code>'+source+'</code>' : ''}. mAP is measured on exactly the frames you
        run. The published figure is defined on the whole 4,952-frame split and with the post-merge
        gate at 0, which is how the reference measures it.</div>`;
-}
-function bars(el, entries, unit) {
-  const max = Math.max(1, ...entries.map(e => e[1]));
-  el.innerHTML = entries.map(([name, val, extra]) =>
-    `<div class="row"><div class="name">${name}</div>
-     <div class="track"><div class="fill" style="width:${100*val/max}%"></div></div>
-     <div class="val">${val.toLocaleString()}${unit||''}${extra?(' &middot; '+extra):''}</div></div>`).join('');
 }
 function stat(n, l, sub) {
   return `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div>`
@@ -457,8 +425,15 @@ async function run() {
     renderMap(d.accuracy);
     if (d.accuracy_error) { msg.innerHTML += ` · <span class="err">${d.accuracy_error}</span>`; }
     renderGallery(d.gallery);
+    // Same numbers onto the node cards, so "which chips ran this" is answered where the
+    // fleet already is rather than only in the bar chart below.
+    const work = {};
+    Object.entries(d.per_host).forEach(([h,v]) =>
+      work[h] = {tasks: v.tasks, avg_ms: v.avg_ms, unit: 'tiles'});
+    renderFleet(null, work);
     const hosts = Object.entries(d.per_host).sort((a,b)=>a[0].localeCompare(b[0]))
-      .map(([h,v]) => [h.replace('.local',''), v.tasks, v.avg_ms+' ms/tile']);
+      .map(([h,v]) => [h.replace('.local',''), v.tasks,
+                       v.avg_ms + ' ms/tile' + (v.product ? ' · ' + v.product : '')]);
     bars(document.getElementById('hosts'), hosts, ' tiles');
     const cls = Object.entries(d.classes).sort((a,b)=>b[1]-a[1]).slice(0,12);
     document.getElementById('clscard').style.display = cls.length ? '' : 'none';
@@ -470,8 +445,28 @@ async function run() {
 document.getElementById('run').onclick = run;
 document.getElementById('gt').onchange = () => renderGallery(LAST && LAST.gallery);
 loadDatasets();
-</script>
-</body></html>"""
+pollFleet(); setInterval(pollFleet, 5000);
+"""
+
+# Concatenated, never %-formatted: the CSS is full of {braces} and the JS of ${literals}
+# and `width:...%`, all of which a format string would mangle. See src/common/dashboard_ui.py.
+HTML = ('<!doctype html>\n<html><head><meta charset="utf-8">'
+        '<title>Symphony + Akida shard inference</title>\n<style>'
+        + ui.BASE_CSS + APP_CSS +
+        '</style></head><body>\n'
+        '<header>\n'
+        '  <h1>Symphony + Akida &mdash; image-shard inference</h1>\n'
+        '  <p>Each 448&times;448 frame is split into six 224&times;224 tiles &mdash; four'
+        ' quadrants, an overlapping centre, and the whole frame downscaled. Symphony fans the'
+        ' tiles across the Akida chips (one on-chip inference each) and the stitch service'
+        ' merges them back into one result for the frame.</p>\n'
+        '</header>\n<main>\n'
+        + ui.FLEET_HTML + APP_HTML +
+        '</main>\n<script>\n'
+        + ui.FLEET_JS + ui.BARS_JS + APP_JS +
+        '\n</script>\n</body></html>')
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=PORT)
+    # threaded (the Flask default) is load-bearing: /api/run blocks this request for the whole
+    # run, and the fleet card has to keep polling while it does.
+    app.run(host="0.0.0.0", port=PORT, threaded=True)

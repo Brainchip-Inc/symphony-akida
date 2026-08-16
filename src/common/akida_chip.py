@@ -21,12 +21,25 @@ import time
 import numpy as np
 import akida
 
+import akida_product
+
 HOST = socket.gethostname()
 MODELS_DIR = os.environ.get("AKIDA_MODELS_DIR", "/shared/models")
 
 
 def akida_version():
     return str(getattr(akida, "__version__", "?"))
+
+
+def device_product(device):
+    """This device's product name -- "AKD1500", "AKD1000". Never empty.
+
+    Keyed on the HwVersion, which is exact, falling back to parsing the desc. Both tables
+    live in akida_product so the host-side dashboards (no akida, no chip) name the silicon
+    the same way this does.
+    """
+    return (akida_product.from_version(getattr(device, "version", None))
+            or akida_product.from_desc(getattr(device, "desc", device)))
 
 
 def select_device():
@@ -44,8 +57,8 @@ def select_device():
         raise RuntimeError("AKIDA_DEVICE_INDEX=%d but only %d device(s) visible"
                            % (idx, len(devs)))
     dev = devs[idx]
-    sys.stderr.write("[akida-chip] %s -> device[%d] %s\n"
-                     % (HOST, idx, getattr(dev, "desc", str(dev))))
+    sys.stderr.write("[akida-chip] %s -> device[%d] %s (%s)\n"
+                     % (HOST, idx, getattr(dev, "desc", str(dev)), device_product(dev)))
     sys.stderr.flush()
     return dev
 
@@ -108,6 +121,10 @@ class Chip:
     def __init__(self, device):
         self.device = device
         self.desc = str(getattr(device, "desc", device))
+        # The product name every app shows. desc is the silicon name ("NSoC_v2") and, since
+        # the entrypoint pins one chip per container at slot 0, it is also identical on every
+        # node -- so it is what the chip IS, not which chip it is.
+        self.product = device_product(device)
         self.model = None
         self.stem = None
         self.ishape = None
@@ -147,6 +164,7 @@ class Chip:
         self.classes = _classes(path, nout)
         return {"name": self.stem, "input_shape": list(self.ishape),
                 "num_classes": nout, "class_names": self.classes, "device": self.desc,
+                "product": self.product,
                 "akida_mapped": self.on_chip, "map_error": self.map_error}
 
     def unload(self):
@@ -173,7 +191,8 @@ class Chip:
         cls = int(np.argmax(logits))
         return {"cls": cls,
                 "cls_name": self.classes[cls] if cls < len(self.classes) else str(cls),
-                "inference_us": us, "host": HOST, "device": self.desc, "model": self.stem}
+                "inference_us": us, "host": HOST, "device": self.desc,
+                "product": self.product, "model": self.stem}
 
     def predict_tile(self, arr):
         """Like infer(), but return the model's float output tensor instead of an argmax class.
@@ -197,4 +216,5 @@ class Chip:
         y = self.model.predict(x)
         us = int((time.perf_counter() - t0) * 1e6)
         return (np.asarray(y)[0], us,
-                {"host": HOST, "device": self.desc, "model": self.stem})
+                {"host": HOST, "device": self.desc, "product": self.product,
+                 "model": self.stem})

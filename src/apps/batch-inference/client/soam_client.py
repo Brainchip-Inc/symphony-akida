@@ -63,9 +63,13 @@ def input_length(model):
 
 
 def build_pool(model, n, count):
-    """A pool of raw-byte tensors to cycle through. Prefer real samples from
+    """A pool of raw-byte tensors to cycle through. Prefer prepared samples from
     /shared/samples (<model>.bin + sidecar, read with the stdlib -- the 3.6
-    client has no numpy); otherwise fall back to random uint8 of the right size."""
+    client has no numpy); otherwise fall back to random uint8 of the right size.
+
+    A prepared set is not automatically real: prepare_samples.py synthesises a random set
+    for a model that has no dataset, and flags it. Report that, or a noise run reads as a
+    real one in the dashboard and in this client's own summary."""
     base = os.path.join(SAMPLES_DIR, model)
     side_p, bin_p = base + ".samples.json", base + ".bin"
     if os.path.isfile(side_p) and os.path.isfile(bin_p):
@@ -82,7 +86,8 @@ def build_pool(model, n, count):
                 for i in idx:
                     fh.seek(i * per)
                     pool.append(fh.read(per))
-            return pool, "real (%d of %d)" % (k, avail)
+            kind = "random noise" if side.get("random") else "real"
+            return pool, "%s (%d of %d)" % (kind, k, avail)
         print("[client] %s sample set mismatches model (per=%d n=%d); using random"
               % (model, per, n), file=sys.stderr)
     k = max(1, min(count, 256))
@@ -144,6 +149,11 @@ def main():
 
     per_host = Counter()
     per_host_us = defaultdict(float)
+    # Which chip each host turned out to be. Every reply already carries it (akida_chip's
+    # Chip.infer identity dict); it used to be parsed and dropped, so the dashboard could
+    # only ever name the hosts, never the silicon. First reply per host wins -- a node is
+    # pinned to one chip for the life of the container, so there is nothing to update.
+    per_host_id = {}
     classes = Counter()
     errors = 0
     done = 0
@@ -161,6 +171,9 @@ def main():
                 continue
             per_host[r["host"]] += 1
             per_host_us[r["host"]] += r.get("inference_us", 0)
+            per_host_id.setdefault(r["host"], {"device": r.get("device"),
+                                               "product": r.get("product"),
+                                               "model": r.get("model")})
             classes[r.get("cls_name", "?")] += 1
     wall = time.time() - t0
     for th in senders:
@@ -181,8 +194,9 @@ def main():
         "throughput": round(rate, 1), "avg_ms": round(avg_ms, 3),
         "one_chip_rate": round(one_chip, 1),
         "speedup": round(rate / one_chip, 2) if one_chip else 0.0,
-        "per_host": {h: {"tasks": per_host[h],
-                         "avg_ms": round(per_host_us[h] / per_host[h] / 1000.0, 3)}
+        "per_host": {h: dict(per_host_id.get(h, {}),
+                             tasks=per_host[h],
+                             avg_ms=round(per_host_us[h] / per_host[h] / 1000.0, 3))
                      for h in per_host},
         "classes": dict(classes),
     }
@@ -198,8 +212,9 @@ def main():
     print("throughput:   %.1f inferences/sec" % rate)
     print("\nper-chip distribution:")
     for h in sorted(per_host):
-        print("  %-26s %6d tasks   avg on-chip %.2f ms"
-              % (h, per_host[h], result["per_host"][h]["avg_ms"]))
+        entry = result["per_host"][h]
+        print("  %-26s %-9s %6d tasks   avg on-chip %.2f ms"
+              % (h, entry.get("product") or "?", per_host[h], entry["avg_ms"]))
     print("\navg on-chip latency: %.2f ms  ->  one chip sustains ~%.0f inf/s" % (avg_ms, one_chip))
     print("fleet of %d chips:    %.0f inf/s  (~%.1fx a single chip)"
           % (len(per_host), rate, result["speedup"]))

@@ -6,7 +6,10 @@ dataset into:
 
   <set>.bin           raw concatenated uint8, C-order, count * per_sample_bytes
   <set>.samples.json  {set, model, count, per_sample_bytes, input_shape, class_names,
-                       source_npz, has_ground_truth}
+                       source_npz, has_ground_truth, random}
+
+A model with no dataset of its own gets a synthesised random set instead (see synthesise),
+flagged `random: true` so nothing downstream presents noise as real samples.
 
 The client then seeks into the .bin for ready-to-send byte tensors (no parsing) and ships them
 as binary. The sidecars are also what the dashboards list as selectable sample sets.
@@ -42,6 +45,7 @@ from testkit import TestKit  # noqa: E402
 
 CHUNK = 64
 META_SUFFIX = "_meta.json"
+RANDOM_COUNT = 256      # enough to cycle through; the serial-http workload caps at 200 anyway
 
 
 class PrepareError(Exception):
@@ -167,6 +171,61 @@ def scan_kits(kits_dir, models_dir, out_dir):
             print("%-28s skipped: %s" % (name, exc))
 
 
+def synthesise(model, models_dir, out_dir, count=RANDOM_COUNT, seed=1234):
+    """Write a random-noise sample set for a model that has no dataset of its own.
+
+    Not every model ships with samples. Without a set the serial-http workload dropdown
+    cannot offer that model at all, while the batch client quietly improvises its own random
+    input -- so the two apps disagree about what is runnable, for no reason the user can see.
+    One synthesised set settles it: both apps run the model, over the same bytes.
+
+    `random: true` in the sidecar is the load-bearing part. It is what stops everything
+    downstream presenting noise as real samples -- the batch client's input line, the
+    dropdown label, the warning above the results. Uniform uint8 exercises the whole path and
+    measures throughput honestly; the predicted classes are meaningless and must say so.
+    """
+    meta = read_meta(models_dir, model)
+    shape = sample_shape(meta)
+    per_sample = int(np.prod(shape))
+    if not os.path.isdir(out_dir):
+        os.makedirs(out_dir)
+    rng = np.random.default_rng(seed)          # seeded: two runs get the same noise
+    bin_path = os.path.join(out_dir, model + ".bin")
+    with open(bin_path, "wb") as handle:
+        for start in range(0, count, CHUNK):
+            block = rng.integers(0, 256, size=(min(CHUNK, count - start), per_sample),
+                                 dtype=np.uint8)
+            handle.write(block.tobytes(order="C"))
+    sidecar = {"set": model, "model": model, "count": count,
+               "per_sample_bytes": per_sample, "input_shape": list(shape),
+               "num_classes": meta.get("num_classes"), "class_names": meta.get("class_names"),
+               "source_npz": None, "has_ground_truth": False, "random": True}
+    with open(os.path.join(out_dir, model + ".samples.json"), "w") as handle:
+        json.dump(sidecar, handle)
+    print("%-28s %5d samples x %6d bytes  (RANDOM noise, no dataset) -> %s"
+          % (model, count, per_sample, bin_path))
+
+
+def scan_missing(models_dir, out_dir, count=RANDOM_COUNT):
+    """Give every model still without a set a random one, so no app has to improvise.
+
+    Runs last, so a real dataset always wins: a model prepared by scan_models is skipped here.
+    Drop a data/samples/<model>.npz in later and it takes over on the next launch.
+    """
+    if not os.path.isdir(models_dir):
+        return
+    for name in sorted(os.listdir(models_dir)):
+        if not name.endswith(META_SUFFIX):
+            continue
+        model = name[:-len(META_SUFFIX)]
+        if os.path.exists(os.path.join(out_dir, model + ".samples.json")):
+            continue
+        try:
+            synthesise(model, models_dir, out_dir, count)
+        except Exception as exc:
+            print("%-28s skipped: %s" % (model, exc))
+
+
 def scan_models(data_dir, models_dir, out_dir):
     """Prepare data/samples/<model>.npz, the committed sets named after their model."""
     found = sorted(f for f in os.listdir(data_dir) if f.endswith(".npz")) \
@@ -191,6 +250,10 @@ def main():
     ap.add_argument("--npz", help="prepare this .npz instead of scanning --data-dir")
     ap.add_argument("--model", help="model the frames feed (default: matched on input shape)")
     ap.add_argument("--name", help="sample set name (default: the --npz basename)")
+    ap.add_argument("--random-count", type=int, default=RANDOM_COUNT,
+                    help="samples in a synthesised random set (default %d)" % RANDOM_COUNT)
+    ap.add_argument("--no-random", action="store_true",
+                    help="do not synthesise random sets for models that have no dataset")
     args = ap.parse_args()
 
     try:
@@ -201,6 +264,9 @@ def main():
                     args.models_dir, args.out)
         else:
             scan_models(args.data_dir, args.models_dir, args.out)
+            # Last, so a real dataset always wins the name.
+            if not args.no_random:
+                scan_missing(args.models_dir, args.out, args.random_count)
     except PrepareError as exc:
         raise SystemExit(str(exc))
 

@@ -203,6 +203,11 @@ def main():
     img_state = {}            # image_id -> {"got", "err", "done", "dispatched", "sample"}
     per_host = Counter()
     per_host_us = defaultdict(float)
+    # Which chip each host turned out to be. Every tile reply already carries it (akida_chip's
+    # Chip.predict_tile identity dict); it used to be parsed and dropped, so the dashboard could
+    # only ever name the hosts, never the silicon. First reply per host wins -- a node is
+    # pinned to one chip for the life of the container, so there is nothing to update.
+    per_host_id = {}
     classes = Counter()
     totals = {"seg_err": 0, "inf_done": 0, "inf_err": 0, "img_done": 0, "img_err": 0,
               "boxes": 0, "decode_us": 0.0}
@@ -280,6 +285,10 @@ def main():
                     if ok:
                         per_host[reply["host"]] += 1
                         per_host_us[reply["host"]] += reply.get("inference_us", 0)
+                        per_host_id.setdefault(reply["host"],
+                                               {"device": reply.get("device"),
+                                                "product": reply.get("product"),
+                                                "model": reply.get("model")})
                         totals["decode_us"] += reply.get("decode_us", 0)
                     else:
                         totals["inf_err"] += 1
@@ -387,8 +396,9 @@ def main():
         "one_chip_rate": round(one_chip, 2),
         "speedup": round(rate / one_chip, 2) if one_chip else 0.0,
         "avg_boxes": round(float(totals["boxes"]) / ok_frames, 2) if ok_frames else 0.0,
-        "per_host": {host: {"tasks": per_host[host],
-                            "avg_ms": round(per_host_us[host] / per_host[host] / 1000.0, 3)}
+        "per_host": {host: dict(per_host_id.get(host, {}),
+                                tasks=per_host[host],
+                                avg_ms=round(per_host_us[host] / per_host[host] / 1000.0, 3))
                      for host in per_host},
         "classes": dict(classes),
     }
@@ -414,8 +424,9 @@ def main():
     print("throughput:    %.2f frames/sec  (avg %.2f boxes/frame)" % (rate, result["avg_boxes"]))
     print("\nper-chip tile distribution:")
     for host in sorted(per_host):
-        print("  %-26s %6d tiles   avg on-chip %.2f ms"
-              % (host, per_host[host], result["per_host"][host]["avg_ms"]))
+        entry = result["per_host"][host]
+        print("  %-26s %-9s %6d tiles   avg on-chip %.2f ms"
+              % (host, entry.get("product") or "?", per_host[host], entry["avg_ms"]))
     print("\navg on-chip latency/tile:      %.2f ms (+ %.2f ms decode)"
           % (avg_tile_ms, result["avg_decode_ms"]))
     print("one chip (%d tiles serial):     ~%.2f frames/sec" % (n_tiles, one_chip))

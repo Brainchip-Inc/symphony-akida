@@ -2,10 +2,10 @@
 
 One instance runs on each compute node (started by the container entrypoint when
 START_HTTP=1). It owns this node's single Akida chip: it maps a model with
-``hw_only=True`` on the real AKD1000 and serves a small HTTP API that the laptop
-dashboard round-robins across the fleet. This is the "before" demo -- HTTP + serial
-round-robin, one chip busy at a time -- in contrast to the batch-inference app's
-concurrent SOAM fan-out.
+``hw_only=True`` on the real silicon -- whichever family the launcher gave this node,
+AKD1500 or AKD1000 -- and serves a small HTTP API that the laptop dashboard round-robins
+across the fleet. This is the "before" demo -- HTTP + serial round-robin, one chip busy
+at a time -- in contrast to the batch-inference app's concurrent SOAM fan-out.
 
 The on-chip logic (device select, hw_only map, forward) is the SHARED ``akida_chip``
 module (baked at /opt/akida-common), the very same code the SOAM worker uses. Here we
@@ -13,12 +13,18 @@ load with allow_software=True so a model that will not map hw_only still runs (i
 software) and the node honestly reports SOFTWARE instead of ON-CHIP.
 
 HTTP API (matches the dashboard's akida_client.py contract):
-  GET  /health              -> {host, model, akida_mapped, hardware_present, device, map_error, akida_version}
+  GET  /health              -> {host, chip_node, model, akida_mapped, hardware_present,
+                                device, product, map_error, akida_version}
   GET  /models              -> {models:[{name,input_shape,num_classes,class_names,size_bytes}], current}
-  POST /load    {name}      -> {model, akida_mapped, device, ...}   (maps hw_only on-chip)
+  POST /load    {name}      -> {model, akida_mapped, device, product, ...} (maps hw_only on-chip)
   POST /reload  {name}      -> same as /load
   POST /unload              -> {ok:true}
-  POST /infer   {input:[…]} -> {cls, cls_name, inference_us, host, device, hardware, mode}
+  POST /infer   {input:[…]} -> {cls, cls_name, inference_us, host, device, product, hardware, mode}
+
+`device` is the chip's own desc ("PCIe/AKD1500/16MB/0"), `product` the name to show
+("AKD1500"), and `chip_node` the physical /dev node this container was pinned to
+("akd1500_3"). The last one is the only per-node discriminator: the entrypoint exposes
+every node's chip as slot 0, so `device` is byte-identical across the fleet.
 """
 import json
 import os
@@ -30,9 +36,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 # Shared code baked at /opt/akida-common (also set on PYTHONPATH by the wrapper).
 sys.path.insert(0, os.environ.get("AKIDA_COMMON_DIR", "/opt/akida-common"))
 from akida_chip import Chip, select_device, akida_version, MODELS_DIR  # noqa: E402
-import models as allowlist  # noqa: E402  shared KWS+VWW allowlist
+import models as allowlist  # noqa: E402  shared classifier-model allowlist
 
 HOST = socket.gethostname()
+# The /dev node up.sh pinned to this container ("akd1500_3"). Set by docker run and still in
+# our env because the entrypoint starts us with `su egoadmin -c` (no `-`, so the environment
+# survives). It is the only thing that tells two nodes apart -- see the module docstring.
+CHIP_NODE = os.environ.get("AKIDA_CHIP_NODE", "").strip() or None
 PORT = int(os.environ.get("HTTP_PORT", "8790"))
 DEFAULT_MODEL = os.environ.get("AKIDA_DEFAULT_MODEL", "").strip()
 
@@ -105,10 +115,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/health":
             self._send(200, {
                 "host": HOST,
+                "chip_node": CHIP_NODE,
                 "model": _chip.stem if _chip else None,
                 "akida_mapped": bool(_chip and _chip.on_chip),
                 "hardware_present": _hw_present,
                 "device": _chip.desc if _chip else None,
+                "product": _chip.product if _chip else None,
                 "map_error": _chip.map_error if _chip else None,
                 "akida_version": akida_version(),
             })
@@ -144,7 +156,10 @@ class Handler(BaseHTTPRequestHandler):
                 with _lock:
                     r = _chip.infer(vals)
                     on_chip = _chip.on_chip
-                r["hardware"] = "AKD1000" if on_chip else None
+                # The chip's own product name, never a literal: this fleet is AKD1500 and
+                # used to report AKD1000. Guaranteed non-empty (akida_product), which the
+                # dashboard's "all N ON-CHIP" tally depends on -- it counts truthy values.
+                r["hardware"] = _chip.product if on_chip else None
                 r["mode"] = "on-chip" if on_chip else "software"
                 self._send(200, r)
             else:
@@ -156,8 +171,11 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     _init()
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-    sys.stderr.write("[http-server] %s listening on :%d  hw_present=%s model=%s on_chip=%s\n"
-                     % (HOST, PORT, _hw_present,
+    # "listening on" is up.sh's readiness marker for this app -- keep the substring.
+    sys.stderr.write("[http-server] %s listening on :%d  chip=%s product=%s hw_present=%s"
+                     " model=%s on_chip=%s\n"
+                     % (HOST, PORT, CHIP_NODE,
+                        _chip.product if _chip else None, _hw_present,
                         _chip.stem if _chip else None,
                         _chip.on_chip if _chip else False))
     sys.stderr.flush()
