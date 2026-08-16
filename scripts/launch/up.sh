@@ -162,6 +162,28 @@ legacy=$(printf '%s\n' "${CHIPS[@]}" | grep -c '^akida[0-9]' || true)
 [ "${legacy:-0}" -gt 0 ] && log "WARN: $legacy of $NODES chip(s) are AKD1000, not AKD1500"
 log "app=$APP: launching 1 master + $NODES compute node(s) on chips: ${CHIPS[*]}"
 
+# --- datasets are actually here, before anything is torn down ---------------
+# A clone without `git lfs pull` leaves ~130 bytes of pointer text where each .npz should be.
+# Checked here rather than next to the prep below, because everything after this point is
+# destructive: a running cluster should not be killed only to discover the data was never
+# fetched. `read` rather than grep -- grep on a fetched 57 MiB kit would read all of it to not
+# match, and a `head -c | grep -q` pipeline can return 141 under the pipefail set at the top.
+lfs_pointer() {
+    [ "$(stat -Lc %s "$1" 2>/dev/null || echo 999999)" -lt 1024 ] || return 1
+    read -r first < "$1" 2>/dev/null || return 1
+    [ "$first" = "version https://git-lfs.github.com/spec/v1" ]
+}
+have_npz() { ls "$1"/*/*.npz >/dev/null 2>&1; }
+pointers=""
+for f in "$DATA_DIR"/*/*.npz; do
+    [ -f "$f" ] && lfs_pointer "$f" && pointers="$pointers${pointers:+ }$f" || true
+done
+if [ -n "$pointers" ]; then
+    echo "Datasets are Git LFS pointers, not data. Run: git lfs install && git lfs pull" >&2
+    for f in $pointers; do echo "  $f" >&2; done
+    exit 1
+fi
+
 # --- clean slate ------------------------------------------------------------
 for c in $(docker ps -aq --filter "name=symphony-master" --filter "name=symphony-compute-"); do docker rm -f "$c" >/dev/null; done
 docker network rm "$NETWORK" >/dev/null 2>&1 || true
@@ -183,25 +205,6 @@ log "seeded models: $(ls "$SHARED/models" | grep '\.fbz$' | tr '\n' ' ')"
 # folder per dataset, each holding exactly one .npz (Git LFS): the folder names the set, and the
 # model is matched on the per-sample size. See data/README.md.
 prep() { ( cd "$HERE" && uv run python src/common/prepare_samples.py "$@" ) 2>&1 | sed 's/^/    /'; }
-have_npz() { ls "$1"/*/*.npz >/dev/null 2>&1; }
-# A clone without `git lfs pull` leaves ~130 bytes of pointer text where each .npz should be.
-# Every dataset would then be skipped one by one, several screens up; say it once, up front.
-# `read` rather than grep: grep on a fetched 57 MiB kit would read all of it to not match, and a
-# `head -c | grep -q` pipeline can return 141 under the pipefail set at the top of this script.
-lfs_pointer() {
-    [ "$(stat -Lc %s "$1" 2>/dev/null || echo 999999)" -lt 1024 ] || return 1
-    read -r first < "$1" 2>/dev/null || return 1
-    [ "$first" = "version https://git-lfs.github.com/spec/v1" ]
-}
-pointers=""
-for f in "$DATA_DIR"/*/*.npz; do
-    [ -f "$f" ] && lfs_pointer "$f" && pointers="$pointers${pointers:+ }$f" || true
-done
-if [ -n "$pointers" ]; then
-    echo "Datasets are Git LFS pointers, not data. Run: git lfs install && git lfs pull" >&2
-    for f in $pointers; do echo "  $f" >&2; done
-    exit 1
-fi
 if have_npz "$DATA_DIR" || [ -n "$DATASET" ]; then
     if ! command -v uv >/dev/null 2>&1; then
         log "WARN: uv not found; skipping sample prep (clients will use random inputs)"
