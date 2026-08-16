@@ -53,15 +53,20 @@ docker exec symphony-master /opt/akida-client/run_client.sh --model kws_keyword_
 <details>
 <summary><b>Models</b></summary>
 
-Models that map `hw_only` on the fleet's chips (in `models/`, Git LFS). The dashboard currently
-surfaces only KWS + VWW (shared allowlist `src/common/models.py`); `surface_search_classifier`
-stays in `models/` but is hidden from the UI for now:
+Models that map `hw_only` on the fleet's chips (in `models/`, Git LFS), surfaced through the
+shared allowlist `src/common/models.py`:
 
-| Model | Input | Classes | Shown |
+| Model | Input | Classes | Sample set |
 |---|---|---|---|
-| `kws_keyword_spotting_sparse` | 49×10×1 | 12 keywords | ✅ |
-| `vww_person_detect` | 96×96×3 | person / background | ✅ |
-| `surface_search_classifier` | 8×8×1 | 7 classes | hidden |
+| `kws_keyword_spotting_sparse` | 49×10×1 | 12 keywords | ✅ real |
+| `vww_person_detect` | 96×96×3 | person / background | ✅ real |
+| `surface_search_classifier` | 8×8×1 | 7 classes | none, random input |
+
+`surface_search_classifier` has no `.npz` in `data/samples/`, so there is nothing to prepare
+for it: this client falls back to random `uint8`, which measures throughput honestly but makes
+its class histogram meaningless, and the serial-http workload dropdown does not offer it at
+all. It still maps `hw_only`, so it is a real on-chip model for the load/hot-swap demo. Drop an
+`.npz` named after it into `data/samples/` and `up.sh` prepares it like the other two.
 
 Add more by dropping a chip-mappable `.fbz` (+ a `<name>_meta.json` with `input_shape`/`class_names`)
 into `models/` and adding its stem to `SHOWN_MODELS` in `src/common/models.py`.

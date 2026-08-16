@@ -5,7 +5,7 @@ per-node Akida HTTP inference servers (one per compute chip, published on host p
 8790, 8791, ...) to:
 
   * show fleet + per-node ON-CHIP vs SOFTWARE status
-  * list the KWS/VWW models available in the shared models dir
+  * list the allowlisted models available in the shared models dir
   * load / unload / hot-swap the model on every live node
   * stage a local .fbz into the cluster's shared models dir
   * run a sample workload fanned across the fleet -- one HTTP /infer at a time,
@@ -13,9 +13,9 @@ per-node Akida HTTP inference servers (one per compute chip, published on host p
     concurrent SOAM fan-out)
 
 It differs from the archived original in three fixed behaviours: inference now genuinely
-maps on the chip (so the ON-CHIP badge is truthful), only KWS + VWW are shown, and the
-workload is fed from the real .npz samples (via prepare_samples.py's <model>.bin) instead
-of the old fat *.samples.json int-lists.
+maps on the chip (so the ON-CHIP badge is truthful), the model list is an explicit allowlist
+(src/common/models.py), and the workload is fed from the real .npz samples (via
+prepare_samples.py's <model>.bin) instead of the old fat *.samples.json int-lists.
 
 Alone among the three dashboards this one has a live channel to every node -- /health -- so
 its Compute-nodes card is built from what each chip says about itself rather than from
@@ -38,7 +38,7 @@ from flask import Flask, jsonify, request
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
 sys.path.insert(0, os.path.join(HERE, "..", "client"))     # akida_client (HTTP client)
-sys.path.insert(0, os.path.join(REPO, "src", "common"))    # shared KWS+VWW allowlist
+sys.path.insert(0, os.path.join(REPO, "src", "common"))    # shared classifier-model allowlist
 from akida_client import AkidaServiceClient, AkidaServiceError  # noqa: E402
 import models as allowlist  # noqa: E402
 import dashboard_ui as ui  # noqa: E402  shared theme + Compute-nodes card
@@ -170,7 +170,11 @@ def api_models():
 
 @app.get("/api/samples")
 def api_samples():
-    """List prepared .npz-derived datasets (KWS/VWW) with their offered sample count."""
+    """Prepared .npz-derived datasets with their offered sample count.
+
+    An allowlisted model with no prepared set simply does not appear here, so the dropdown
+    never offers a workload the fleet has no samples for (surface_search_classifier today).
+    """
     out = []
     if os.path.isdir(SAMPLES_DIR):
         for f in sorted(os.listdir(SAMPLES_DIR)):

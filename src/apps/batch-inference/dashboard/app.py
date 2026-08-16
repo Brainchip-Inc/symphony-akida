@@ -22,7 +22,7 @@ from flask import Flask, jsonify, request
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
 sys.path.insert(0, os.path.join(REPO, "src", "common"))
-from models import visible  # noqa: E402  shared KWS+VWW allowlist
+from models import visible  # noqa: E402  shared classifier-model allowlist
 import dashboard_ui as ui  # noqa: E402  shared theme + Compute-nodes card
 import fleet  # noqa: E402  host-side node discovery
 
@@ -37,7 +37,7 @@ app = Flask(__name__)
 
 
 def list_models():
-    # Only the allowlisted models (KWS + VWW) that are actually present in models/.
+    # Only the allowlisted models (src/common/models.py) actually present in models/.
     return visible(MODELS_DIR)
 
 

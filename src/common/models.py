@@ -1,16 +1,20 @@
 """Which models the demos surface -- shared by both dashboards and the App B service.
 
-For now both apps show only KWS and VWW. surface_search_classifier is NOT deleted
-(it stays in models/ for later); it is simply filtered out of the UI and the per-node
-service listing. Widen SHOWN_MODELS to expose more models again.
-
 Pure stdlib on purpose (no numpy/akida): this is imported by host-side dashboards
 (under uv) and by the in-container HTTP server alike.
 """
 import os
 
 # Model stems (basename without .fbz) shown in both classifier apps, in display order.
-SHOWN_MODELS = ["kws_keyword_spotting_sparse", "vww_person_detect"]
+#
+# surface_search_classifier maps hw_only on AKD1500 (verified) so it is a real on-chip
+# model-management demo: load/unload/hot-swap it across the fleet and every node reports
+# ON-CHIP honestly. It has no prepared sample set though (no data/samples/*.npz for it),
+# so it does NOT appear in the serial-http workload dropdown, and the batch client falls
+# back to random uint8 for it -- real throughput, meaningless class histogram. Drop an
+# .npz into data/samples/ and up.sh prepares it like the other two.
+SHOWN_MODELS = ["kws_keyword_spotting_sparse", "vww_person_detect",
+                "surface_search_classifier"]
 
 # Models surfaced by the image-shard-inference app only. Kept OUT of SHOWN_MODELS on
 # purpose: tiled_yolov2_voc is a detector, so it would be meaningless (an argmax "class")

@@ -12,7 +12,9 @@ Three things that were wrong in the original are fixed here:
   (via the shared `akida_chip` core), so the **ON-CHIP** badge is truthful, and the device
   beside it is the one that node actually holds (`AKD1500` or `AKD1000`, read from the
   chip's own `HwVersion`, never a fixed string).
-- **KWS + VWW only** — the model list and dataset picker are restricted to those two.
+- **Allowlisted models only** — the model list is `SHOWN_MODELS` (`src/common/models.py`), and
+  the dataset picker offers only those of them with a prepared sample set, so it never lists a
+  workload it cannot actually run.
 - **Real `.npz` samples** — the workload is fed from the same `.npz`-derived samples the
   batch app uses (`prepare_samples.py` → `<model>.bin`), not the old fat JSON int-lists.
 

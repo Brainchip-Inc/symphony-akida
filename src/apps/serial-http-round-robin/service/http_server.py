@@ -36,7 +36,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 # Shared code baked at /opt/akida-common (also set on PYTHONPATH by the wrapper).
 sys.path.insert(0, os.environ.get("AKIDA_COMMON_DIR", "/opt/akida-common"))
 from akida_chip import Chip, select_device, akida_version, MODELS_DIR  # noqa: E402
-import models as allowlist  # noqa: E402  shared KWS+VWW allowlist
+import models as allowlist  # noqa: E402  shared classifier-model allowlist
 
 HOST = socket.gethostname()
 # The /dev node up.sh pinned to this container ("akd1500_3"). Set by docker run and still in
