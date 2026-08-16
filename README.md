@@ -29,7 +29,7 @@ private registry and no IBM credentials.
 
 ```bash
 git clone <repo-url> symphony-akida && cd symphony-akida
-git lfs install && git lfs pull                    # model .fbz + anchors + sample .npz
+git lfs install && git lfs pull                    # ~91 MiB: model .fbz + anchors + datasets
 curl -LsSf https://astral.sh/uv/install.sh | sh    # host tooling for the dashboards
 uv sync
 docker build --build-arg ACCEPT_IBM_LICENSE=yes \
@@ -75,9 +75,9 @@ bring the other up:
 docker/     Dockerfile (public sources only) + entrypoint + the patch / PKI / verify
             scripts it runs at build time; bakes all three app backends
 scripts/    launch/  up.sh <app> [--nodes N|all] [--dataset <npz>] / down.sh, both --help
-            plus sample generation, reference verification, mAP scoring
+            plus reference verification and mAP scoring
 models/     on-chip .fbz models + anchors (Git LFS)
-data/       samples/ committed .npz sets (Git LFS); voc/ test kits symlinked in, never committed
+data/       one folder per dataset, one .npz in each, all Git LFS (see data/README.md)
 src/
   common/   shared code: akida_chip (on-chip core), tiled_shard (tile geometry, decode and
             merge), detection_map (mAP), testkit (VOC test kit reader), draw_detections,

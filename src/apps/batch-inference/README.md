@@ -60,13 +60,14 @@ shared allowlist `src/common/models.py`:
 |---|---|---|---|
 | `kws_keyword_spotting_sparse` | 49×10×1 | 12 keywords | ✅ real |
 | `vww_person_detect` | 96×96×3 | person / background | ✅ real |
-| `surface_search_classifier` | 8×8×1 | 7 classes | none, random input |
+| `surface_search_classifier` | 8×8×1 | 7 classes | ⚠️ committed noise |
 
-`surface_search_classifier` has no `.npz` in `data/samples/`, so there is nothing to prepare
-for it: this client falls back to random `uint8`, which measures throughput honestly but makes
-its class histogram meaningless, and the serial-http workload dropdown does not offer it at
-all. It still maps `hw_only`, so it is a real on-chip model for the load/hot-swap demo. Drop an
-`.npz` named after it into `data/samples/` and `up.sh` prepares it like the other two.
+`surface_search_classifier` ships without real samples, so `data/surface_search_classifier/`
+holds seeded uniform noise instead. It runs everywhere the other two do and measures throughput
+honestly; its class histogram is meaningless, and every app says so — the dataset marks itself
+synthetic and the flag rides through to the client's input line and the dashboard banner. It
+still maps `hw_only`, so it is a real on-chip model for the load/hot-swap demo. Replace that
+folder's `.npz` with real 8×8×1 samples and the warnings go away.
 
 Add more by dropping a chip-mappable `.fbz` (+ a `<name>_meta.json` with `input_shape`/`class_names`)
 into `models/` and adding its stem to `SHOWN_MODELS` in `src/common/models.py`.
@@ -88,10 +89,12 @@ into `models/` and adding its stem to `SHOWN_MODELS` in `src/common/models.py`.
 <details>
 <summary><b>Sample data</b></summary>
 
-Real sample sets ship as `data/samples/<model>.npz` (git LFS). At launch, `up.sh` converts
-each to a raw `<model>.bin` + `<model>.samples.json` sidecar under `/shared/samples` (via
+Sample sets ship as `data/<dataset>/<one>.npz` (git LFS, one folder per dataset — see
+[`data/README.md`](../../../data/README.md)). At launch, `up.sh` converts each to a raw
+`<dataset>.bin` + `<dataset>.samples.json` sidecar under `/shared/samples` (via
 `src/common/prepare_samples.py`), and the client streams those tensors as **binary** — no
-JSON int arrays. A model with no `.npz` (e.g. `surface_search_classifier`) falls back to
+JSON int arrays. The client finds its set through the sidecars, by model, so the set is free
+to be named after the data rather than after the model. With no set at all it falls back to
 random uint8 generated inline, so it still runs.
 
 ```bash

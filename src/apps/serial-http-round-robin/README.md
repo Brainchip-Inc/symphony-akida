@@ -16,7 +16,7 @@ Three things that were wrong in the original are fixed here:
   the dataset picker offers only those of them with a prepared sample set, so it never lists a
   workload it cannot actually run.
 - **Real `.npz` samples** — the workload is fed from the same `.npz`-derived samples the
-  batch app uses (`prepare_samples.py` → `<model>.bin`), not the old fat JSON int-lists.
+  batch app uses (`prepare_samples.py` → `<dataset>.bin`), not the old fat JSON int-lists.
 
 Both apps share one image (`symphony-akida`) and one cluster. `scripts/launch/up.sh`
 activates only one backend per run and tears any previous cluster down first, so the two
@@ -106,12 +106,14 @@ batch app; widen it to expose more models in both UIs at once.
 <details>
 <summary><b>Sample data</b></summary>
 
-Same real sample sets as the batch app: `data/samples/<model>.npz` (git LFS). `up.sh`
-converts them to `<model>.bin` + `<model>.samples.json` under `.cluster/shared/samples`
-(via `src/common/prepare_samples.py`); the dashboard slices per-sample bytes and sends
-them as the HTTP `{"input":[…]}` array. Because this is the serial "before" path, the
-run is capped at `AKIDA_SAMPLE_LIMIT` samples (default 200) so it completes promptly;
-raise it to run more.
+Same sample sets as the batch app: `data/<dataset>/<one>.npz` (git LFS, one folder per
+dataset — see [`data/README.md`](../../../data/README.md)). `up.sh` converts them to
+`<dataset>.bin` + `<dataset>.samples.json` under `.cluster/shared/samples` (via
+`src/common/prepare_samples.py`); the dashboard slices per-sample bytes and sends them as
+the HTTP `{"input":[…]}` array. A dataset that is synthetic noise says so in its own sidecar
+and the dropdown labels it, so a noise run never reads as a real one. Because this is the
+serial "before" path, the run is capped at `AKIDA_SAMPLE_LIMIT` samples (default 200) so it
+completes promptly; raise it to run more.
 </details>
 
 <details>
