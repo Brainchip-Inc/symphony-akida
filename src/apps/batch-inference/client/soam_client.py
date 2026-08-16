@@ -63,9 +63,13 @@ def input_length(model):
 
 
 def build_pool(model, n, count):
-    """A pool of raw-byte tensors to cycle through. Prefer real samples from
+    """A pool of raw-byte tensors to cycle through. Prefer prepared samples from
     /shared/samples (<model>.bin + sidecar, read with the stdlib -- the 3.6
-    client has no numpy); otherwise fall back to random uint8 of the right size."""
+    client has no numpy); otherwise fall back to random uint8 of the right size.
+
+    A prepared set is not automatically real: prepare_samples.py synthesises a random set
+    for a model that has no dataset, and flags it. Report that, or a noise run reads as a
+    real one in the dashboard and in this client's own summary."""
     base = os.path.join(SAMPLES_DIR, model)
     side_p, bin_p = base + ".samples.json", base + ".bin"
     if os.path.isfile(side_p) and os.path.isfile(bin_p):
@@ -82,7 +86,8 @@ def build_pool(model, n, count):
                 for i in idx:
                     fh.seek(i * per)
                     pool.append(fh.read(per))
-            return pool, "real (%d of %d)" % (k, avail)
+            kind = "random noise" if side.get("random") else "real"
+            return pool, "%s (%d of %d)" % (kind, k, avail)
         print("[client] %s sample set mismatches model (per=%d n=%d); using random"
               % (model, per, n), file=sys.stderr)
     k = max(1, min(count, 256))

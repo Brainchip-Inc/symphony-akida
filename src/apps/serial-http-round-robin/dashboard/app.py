@@ -189,7 +189,8 @@ def api_samples():
             total = int(d.get("count", 0))
             out.append({"file": f, "model": d["model"],
                         "n": min(total, LIMIT), "total": total,
-                        "input_shape": d.get("input_shape")})
+                        "input_shape": d.get("input_shape"),
+                        "random": bool(d.get("random"))})
     return jsonify({"datasets": out})
 
 
@@ -313,6 +314,7 @@ APP_HTML = """
       <button onclick="runsamples()">▶ Run across fleet</button>
       <span id="runsum" class="muted"></span>
     </div>
+    <div id="dsnote"></div>
     <div id="hist" style="margin:14px 0"></div>
     <table id="results" style="margin-top:10px"><thead><tr><th>#</th><th>node</th><th>class</th><th>latency µs</th><th>ran on</th></tr></thead><tbody></tbody></table>
   </div>
@@ -322,6 +324,19 @@ APP_HTML = """
 APP_JS = """
 const $=s=>document.querySelector(s), api=(p,b)=>fetch(p,b?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}:{}).then(r=>r.json());
 function log(m){$('#log').textContent=('['+new Date().toLocaleTimeString()+'] '+m+'\\n')+$('#log').textContent;}
+let DATASETS=[];
+// A model with no dataset of its own gets a synthesised noise set (prepare_samples.py), which
+// is runnable but says nothing about accuracy. Say so where the run is started, not after it.
+function onDataset(){
+  const d=DATASETS.find(x=>x.file===$('#ds').value);
+  $('#dsnote').innerHTML = (d && d.random)
+    ? `<div class="note warn"><b>Random input.</b> <code>${d.model}</code> ships without a
+       dataset, so this set is uniform noise. Throughput, latency and the per-chip split below
+       are all real; the predicted classes are not, and the histogram should be read as noise.
+       Drop a <code>${d.model}.npz</code> into <code>data/samples/</code> and relaunch to run it
+       on real samples.</div>`
+    : '';
+}
 async function refresh(){
   const dsSel=$('#ds').value;
   await pollFleet();
@@ -330,8 +345,10 @@ async function refresh(){
     <td class=mono>${(x.input_shape||[]).join('×')||'?'}</td><td>${x.num_classes||'?'} <span class=muted>${(x.class_names||[]).slice(0,4).join(', ')}${(x.class_names||[]).length>4?'…':''}</span></td>
     <td class=mono>${x.size_bytes?(x.size_bytes/1024).toFixed(0)+'k':''}</td>
     <td><button class=ghost onclick="load('${x.name}')">${x.name===cur?'Reload':'Load'}</button></td></tr>`).join('')||'<tr><td colspan=5 class=muted>no models staged</td></tr>';
-  const s=await api('/api/samples'); $('#ds').innerHTML=(s.datasets||[]).map(d=>`<option value="${d.file}">${d.model} — ${d.n} samples (${d.input_shape.join('×')})</option>`).join('');
+  const s=await api('/api/samples'); DATASETS=s.datasets||[];
+  $('#ds').innerHTML=DATASETS.map(d=>`<option value="${d.file}">${d.model} · ${d.n} samples (${d.input_shape.join('×')})${d.random?' · random noise':''}</option>`).join('');
   if(dsSel) $('#ds').value=dsSel;
+  $('#ds').onchange=onDataset; onDataset();
 }
 async function load(n){log('load '+n+' on fleet…');const r=await api('/api/load',{name:n});log('load: '+r.results.map(x=>x.url.replace('http://','')+(x.ok?' ✓':' ✗ '+x.error)).join('  '));refresh();}
 async function unload(){log('unload all…');await api('/api/unload',{});refresh();}
