@@ -17,9 +17,9 @@ Each commit subject must be:
 
 > `type(scope): message with at least three words`
 
-- **type** — required; one of the allowed types below.
-- **scope** — optional but recommended (e.g. `service`, `launch`, `kws`).
-- **message** — at least three words.
+- **type**: required; one of the allowed types below.
+- **scope**: optional but recommended (e.g. `service`, `launch`, `kws`).
+- **message**: at least three words.
 
 Invalid messages are rejected by the hook. To bypass for a one-off:
 `SKIP_COMMIT_MSG_CHECK=1 git commit ...`.

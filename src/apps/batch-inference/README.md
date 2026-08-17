@@ -3,7 +3,7 @@
 Submit a batch of inputs as a **single Symphony SOAM session**. Symphony's session
 manager fans the tasks across **every Akida chip in parallel**, each running the
 model mapped on-silicon (`hw_only`). The dashboard shows the per-chip distribution
-and throughput — the multi-Akida advantage over one chip serving inputs serially.
+and throughput: the multi-Akida advantage over one chip serving inputs serially.
 
 <details open>
 <summary><b>First run (fresh clone)</b></summary>
@@ -19,13 +19,13 @@ git lfs install && git lfs pull
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
 
-# 3. build the image (Symphony CE + Akida runtime + our service & client) — public
+# 3. build the image (Symphony CE + Akida runtime + our service & client): public
 #    sources only; slow the first time, cached after that. ACCEPT_IBM_LICENSE is
 #    required and has no default: see the repo README's Licensing section.
 docker build --build-arg ACCEPT_IBM_LICENSE=yes -f docker/Dockerfile -t symphony-akida .
 docker run --rm --entrypoint /usr/local/bin/verify-image symphony-akida --full
 
-# 4. launch the cluster — auto-sizes to healthy chips, capped at 7 (CE limit)
+# 4. launch the cluster: auto-sizes to healthy chips, capped at 7 (CE limit)
 ./scripts/launch/up.sh
 
 # 5. open the dashboard, pick a model, set a sample count, Run
@@ -64,7 +64,7 @@ shared allowlist `src/common/models.py`:
 
 `surface_search_classifier` ships without real samples, so `data/surface_search_classifier/`
 holds seeded uniform noise instead. It runs everywhere the other two do and measures throughput
-honestly; its class histogram is meaningless, and every app says so — the dataset marks itself
+honestly; its class histogram is meaningless, and every app says so: the dataset marks itself
 synthetic and the flag rides through to the client's input line and the dashboard banner. It
 still maps `hw_only`, so it is a real on-chip model for the load/hot-swap demo. Replace that
 folder's `.npz` with real 8×8×1 samples and the warnings go away.
@@ -80,7 +80,7 @@ into `models/` and adding its stem to `SHOWN_MODELS` in `src/common/models.py`.
   (skips stuck ones), pins it to that chip, waits for all to join, then registers and
   enables the SOAM service one-instance-per-chip.
 - Each service instance maps the model on its chip with `hw_only=True`. **A node with no
-  mappable Akida device does not become available** — inference only ever runs on-chip.
+  mappable Akida device does not become available**: inference only ever runs on-chip.
 - `soam_client.py` (in the master) opens one session and submits one task per sample;
   the session manager distributes them across every chip.
 - Symphony console: `https://localhost:8443/platform` (Admin/Admin).
@@ -89,10 +89,10 @@ into `models/` and adding its stem to `SHOWN_MODELS` in `src/common/models.py`.
 <details>
 <summary><b>Sample data</b></summary>
 
-Sample sets ship as `data/<dataset>/<one>.npz` (git LFS, one folder per dataset — see
+Sample sets ship as `data/<dataset>/<one>.npz` (git LFS, one folder per dataset, see
 [`data/README.md`](../../../data/README.md)). At launch, `up.sh` converts each to a raw
 `<dataset>.bin` + `<dataset>.samples.json` sidecar under `/shared/samples` (via
-`src/common/prepare_samples.py`), and the client streams those tensors as **binary** — no
+`src/common/prepare_samples.py`), and the client streams those tensors as **binary**, not
 JSON int arrays. The client finds its set through the sidecars, by model, so the set is free
 to be named after the data rather than after the model. With no set at all it falls back to
 random uint8 generated inline, so it still runs.
@@ -106,7 +106,7 @@ uv run python src/common/prepare_samples.py --out .cluster/shared/samples
 <details>
 <summary><b>Troubleshooting</b></summary>
 
-- **`No healthy Akida chips` / a chip is stuck** (DMA timeout): reset the driver, then relaunch —
+- **`No healthy Akida chips` / a chip is stuck** (DMA timeout): reset the driver, then relaunch:
   `sudo modprobe -r akida_pcie && sudo modprobe akida_pcie && ./scripts/launch/up.sh`.
 - **Fewer nodes than chips:** Community Edition caps the cluster at 64 cores → master + 7 compute.
   Extra chips are left idle (logged at launch).

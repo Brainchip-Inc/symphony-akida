@@ -118,7 +118,7 @@ def _node_record(url, health, roster_by_url):
 
     host = health.get("host") or ""
     mapped = bool(health.get("akida_mapped"))
-    lines = ["model: " + (health.get("model") or "—")]
+    lines = ["model: " + (health.get("model") or "-")]
     if health.get("akida_version"):
         lines.append("akida " + health["akida_version"])
     if mapped:
@@ -381,7 +381,7 @@ refresh();setInterval(refresh,5000);
 # Concatenated, never %-formatted: the CSS is full of {braces} and the JS of ${literals}
 # and `width:...%`, all of which a format string would mangle. See src/common/dashboard_ui.py.
 PAGE = ('<!doctype html>\n<html><head><meta charset="utf-8">'
-        '<title>SymAkida — Neuromorphic Model Service</title>\n<style>'
+        '<title>SymAkida · Neuromorphic Model Service</title>\n<style>'
         + ui.BASE_CSS + APP_CSS +
         '</style></head><body>\n'
         '<header>\n'

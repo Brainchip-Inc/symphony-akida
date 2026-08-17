@@ -137,7 +137,7 @@ function fleetCard(n) {
        : n.state === 'ready' ? 'ready · no work yet' : 'starting…');
   return `<div class="node">
     <div class="who"><span class="dot ${n.state || ''}"></span>${n.name}</div>
-    <div class="chip">${n.product || '—'}<span class="sep">·</span>${n.chip_node || '—'}</div>
+    <div class="chip">${n.product || '-'}<span class="sep">·</span>${n.chip_node || '-'}</div>
     <div class="work">${workLine}</div>
     ${(n.lines || []).map(l => `<div class="line">${l}</div>`).join('')}
     ${(n.badges || []).length ? `<div class="badges">${fleetBadges(n)}</div>` : ''}
@@ -157,7 +157,7 @@ function renderFleet(data, work) {
       + ` · ${s.ready || 0} on-chip ready` + (fams ? ` · ${fams}` : '');
   }
   box.innerHTML = (FLEET.nodes || []).map(fleetCard).join('')
-    || '<div class="muted">no compute nodes found — bring the cluster up with scripts/launch/up.sh</div>';
+    || '<div class="muted">no compute nodes found; bring the cluster up with scripts/launch/up.sh</div>';
 }
 async function pollFleet() {
   try { renderFleet(await (await fetch('/api/fleet')).json()); }

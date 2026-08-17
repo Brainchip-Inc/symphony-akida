@@ -339,7 +339,7 @@ async function loadDatasets() {
   sel.innerHTML = d.datasets.map(s =>
     `<option value="${s.name}" data-count="${s.count}" data-random="${s.is_random}"`
     + ` data-gt="${s.has_ground_truth}" data-source="${s.source_npz}">`
-    + `${s.name} — ${s.count.toLocaleString()} frames${s.has_ground_truth ? ' (with ground truth)' : ''}</option>`).join('');
+    + `${s.name} · ${s.count.toLocaleString()} frames${s.has_ground_truth ? ' (with ground truth)' : ''}</option>`).join('');
   sel.onchange = onDataset; onDataset();
 }
 function onDataset() {
@@ -420,7 +420,7 @@ async function run() {
     const r = await fetch('/api/run', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({dataset, count, post_thresh: post})});
     const d = await r.json();
-    if (d.error) { msg.className='err'; msg.textContent = d.error + (d.detail? (' — '+d.detail):''); btn.disabled=false; return; }
+    if (d.error) { msg.className='err'; msg.textContent = d.error + (d.detail? (': '+d.detail):''); btn.disabled=false; return; }
     LAST = d;
     msg.innerHTML = `${d.images_done.toLocaleString()} frames (${d.segments_done.toLocaleString()} tiles) on `
       + `${d.chips} chips · avg ${d.avg_boxes} boxes/frame · ${d.image_errors} frame errors`
