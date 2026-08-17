@@ -118,7 +118,7 @@ async function run() {
     const r = await fetch('/api/run', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({model, count:+count})});
     const d = await r.json();
-    if (d.error) { msg.className='err'; msg.textContent = d.error + (d.detail? (' — '+d.detail):''); btn.disabled=false; return; }
+    if (d.error) { msg.className='err'; msg.textContent = d.error + (d.detail? (': '+d.detail):''); btn.disabled=false; return; }
     msg.textContent = `${d.done} tasks done on ${d.chips} chips (${d.errors} errors).`;
     document.getElementById('s_thru').innerHTML = Math.round(d.throughput).toLocaleString();
     document.getElementById('s_chips').textContent = d.chips;

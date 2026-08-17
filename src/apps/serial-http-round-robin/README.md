@@ -2,21 +2,21 @@
 
 The "before" demo, restored and fixed. A laptop dashboard talks to a **plain HTTP
 inference server on each compute chip** and dispatches one `/infer` at a time,
-**round-robin** across the nodes — so roughly one chip is busy at a moment. It is the
+**round-robin** across the nodes, so roughly one chip is busy at a moment. It is the
 deliberate contrast to the `batch-inference` app, which submits a single Symphony SOAM
 session that Symphony fans **concurrently** across every chip. Run them one after the
 other to show the difference.
 
 Three things that were wrong in the original are fixed here:
-- **On-chip for real** — each node maps the model with `hw_only=True` on its own chip
+- **On-chip for real**: each node maps the model with `hw_only=True` on its own chip
   (via the shared `akida_chip` core), so the **ON-CHIP** badge is truthful, and the device
   beside it is the one that node actually holds (`AKD1500` or `AKD1000`, read from the
   chip's own `HwVersion`, never a fixed string).
-- **Allowlisted models only** — the model list is `SHOWN_MODELS` (`src/common/models.py`), and
+- **Allowlisted models only**: the model list is `SHOWN_MODELS` (`src/common/models.py`), and
   the dataset picker offers only those of them with a prepared sample set, so it never lists a
   workload it cannot actually run.
-- **Real `.npz` samples** — the workload is fed from the same `.npz`-derived samples the
-  batch app uses (`prepare_samples.py` → `<model>.bin`), not the old fat JSON int-lists.
+- **Real `.npz` samples**: the workload is fed from the same `.npz`-derived samples the
+  batch app uses (`prepare_samples.py` → `<dataset>.bin`), not the old fat JSON int-lists.
 
 Both apps share one image (`symphony-akida`) and one cluster. `scripts/launch/up.sh`
 activates only one backend per run and tears any previous cluster down first, so the two
@@ -36,13 +36,13 @@ git lfs install && git lfs pull
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
 
-# 3. build the image (shared by both apps) — public sources only; slow the first
+# 3. build the image (shared by both apps): public sources only; slow the first
 #    time, cached after that. ACCEPT_IBM_LICENSE is required and has no default:
 #    see the repo README's Licensing section.
 docker build --build-arg ACCEPT_IBM_LICENSE=yes -f docker/Dockerfile -t symphony-akida .
 docker run --rm --entrypoint /usr/local/bin/verify-image symphony-akida --full
 
-# 4. launch the cluster in serial-http mode — auto-sizes to healthy chips, capped at 7
+# 4. launch the cluster in serial-http mode: auto-sizes to healthy chips, capped at 7
 ./scripts/launch/up.sh serial-http-round-robin
 
 # 5. open the dashboard -- sizes the node list to the chips up.sh actually launched
@@ -63,7 +63,7 @@ Over SSH? Forward the port: `ssh -L 5001:localhost:5001 <user>@<host>` and open 
 ./scripts/launch/down.sh                                                # tear down + wipe .cluster/
 ```
 
-Switching demos just means relaunching with the other app name — `up.sh` removes the
+Switching demos just means relaunching with the other app name; `up.sh` removes the
 running cluster first:
 
 ```bash
@@ -106,19 +106,21 @@ batch app; widen it to expose more models in both UIs at once.
 <details>
 <summary><b>Sample data</b></summary>
 
-Same real sample sets as the batch app: `data/samples/<model>.npz` (git LFS). `up.sh`
-converts them to `<model>.bin` + `<model>.samples.json` under `.cluster/shared/samples`
-(via `src/common/prepare_samples.py`); the dashboard slices per-sample bytes and sends
-them as the HTTP `{"input":[…]}` array. Because this is the serial "before" path, the
-run is capped at `AKIDA_SAMPLE_LIMIT` samples (default 200) so it completes promptly;
-raise it to run more.
+Same sample sets as the batch app: `data/<dataset>/<one>.npz` (git LFS, one folder per
+dataset, see [`data/README.md`](../../../data/README.md)). `up.sh` converts them to
+`<dataset>.bin` + `<dataset>.samples.json` under `.cluster/shared/samples` (via
+`src/common/prepare_samples.py`); the dashboard slices per-sample bytes and sends them as
+the HTTP `{"input":[…]}` array. A dataset that is synthetic noise says so in its own sidecar
+and the dropdown labels it, so a noise run never reads as a real one. Because this is the
+serial "before" path, the run is capped at `AKIDA_SAMPLE_LIMIT` samples (default 200) so it
+completes promptly; raise it to run more.
 </details>
 
 <details>
 <summary><b>Troubleshooting</b></summary>
 
-- **A node shows down / no chip:** check its HTTP log — `docker exec symphony-compute-0
-  bash -lc 'tail -n 40 /shared/soam/http-service/logs/http-*.log'` — or `curl
+- **A node shows down / no chip:** check its HTTP log: `docker exec symphony-compute-0
+  bash -lc 'tail -n 40 /shared/soam/http-service/logs/http-*.log'`, or `curl
   http://localhost:8790/health`.
 - **Fewer nodes than chips:** Community Edition caps the cluster at 64 cores → master + 7
   compute; extra chips idle (logged at launch).

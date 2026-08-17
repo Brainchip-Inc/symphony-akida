@@ -4,8 +4,8 @@ Take one **448×448×3** frame, split it into **six 224×224×3 tiles**, run eac
 model on a separate Akida chip in parallel**, then merge the six detection sets back into one
 result for the whole frame.
 
-This is not a throughput trick. A 448 YOLOv2 **cannot map to AKD1500 at all** — `conv_0` accepts
-at most 256 in its second dimension — so sharding into 224 tiles is the only route to 448-class
+This is not a throughput trick. A 448 YOLOv2 **cannot map to AKD1500 at all**: `conv_0` accepts
+at most 256 in its second dimension, so sharding into 224 tiles is the only route to 448-class
 accuracy on this part. On the full VOC2007 test split it is worth **+8.6 mAP50 over the best
 single-device option**:
 
@@ -17,7 +17,7 @@ single-device option**:
 | 6 × 224 tiles, pooled + plain per-class NMS | 22.70 |
 | 448 whole frame (does not fit the hardware) | 54.69 |
 
-The whole pipeline is **three Symphony SOAM services** — the client only sends a frame and reads
+The whole pipeline is **three Symphony SOAM services**: the client only sends a frame and reads
 back merged detections:
 
 ```
@@ -47,7 +47,7 @@ same tile, so a permuted order silently disables it.
 
 The sixth tile carries most of the result. Quadrants plus centre alone score 35.69 against 44.59
 for all six on held-out data, which lands *below* a single-device whole-frame run; the four
-quadrants on their own score 14.74. Adding tiles is **not monotonic** — extra tiles contribute
+quadrants on their own score 14.74. Adding tiles is **not monotonic**: extra tiles contribute
 confident false positives, and only the full complement lets fusion and containment suppression
 clean them up. There is deliberately no cheaper 5-tile mode.
 
@@ -69,11 +69,10 @@ uv sync
 # 3. build the image (bakes all three app backends)
 docker build --build-arg ACCEPT_IBM_LICENSE=yes -f docker/Dockerfile -t symphony-akida .
 
-# 4. optional: symlink any VOC test kits you have, for real frames and mAP
-#    (skip it and the demo runs on the committed random set instead)
-ln -s ~/data/voc/VOCdevkit/voc2007_test_r448*.npz data/voc/
+# 4. the VOC test kit is committed (Git LFS), so step 1's `git lfs pull` is all it takes
+#    for real frames, detections and mAP
 
-# 5. launch the cluster on six chips — one per tile
+# 5. launch the cluster on six chips, one per tile
 ./scripts/launch/up.sh image-shard-inference --nodes 6
 
 # 6. open the dashboard, pick a sample set, Run
@@ -102,10 +101,11 @@ docker exec symphony-master /opt/akida-shard-client/run_client.sh --count 200
 `--nodes` defaults to **6** for this app (one chip per tile) and is always capped at the
 Symphony CE 64-core limit of master + 7 compute.
 
-**Sample sets.** The launcher prepares the committed random set plus every `.npz` it finds in
-[`data/voc/`](../../../data/voc/README.md), each named after its own file, and the dashboard
-offers all of them in one dropdown. Symlink your kits in there once and every launch picks them
-up; with none, the demo runs on random frames and says so.
+**Sample sets.** The launcher prepares every dataset folder under
+[`data/`](../../../data/README.md), each named after its own folder, and the dashboard offers
+the ones this app can run in a dropdown: here, the committed `voc2007` kit. `up.sh --dataset
+<npz>` adds a one-off kit from anywhere else, which is how the full 4,952-frame split gets
+scored.
 
 **Editing code.** `src/common/`, `service/` and `client/` are **baked into the image**, so a
 change there only takes effect after a rebuild (step 3 above) followed by a relaunch. The
@@ -115,36 +115,45 @@ dashboard and everything under `scripts/` run from the working tree and need nei
 <details>
 <summary><b>Measuring accuracy on VOC2007 test</b></summary>
 
-The reporting split is **PASCAL VOC2007 test, 4,952 images** — the last VOC test set with public
+The reporting split is **PASCAL VOC2007 test, 4,952 images**: the last VOC test set with public
 ground truth. It ships as a self-contained `.npz` test kit holding the 448 frames, the ground
 truth, the model configuration *and* the reference detections of this exact model, so nothing
 else is needed: no tfds, no VOC download, no `akida_models`.
 
-The kits live outside the repo because the full split is 2.8 GiB. Symlink them into `data/voc/`
-and every launch offers them, under whatever name the file has:
+The whole split is 2.78 GiB, too much to ask of every clone, so
+[`data/voc2007/`](../../../data/README.md) carries a **100-frame kit** instead, chosen out of
+60,000 uniform draws as the one whose mAP50, mAP75 and mAP all land within 0.0016 of the full
+split's. It is committed through Git LFS and needs no setup:
 
 ```bash
-ln -s ~/data/voc/VOCdevkit/voc2007_test_r448_first500.npz data/voc/   # 500 frames, quick
-ln -s ~/data/voc/VOCdevkit/voc2007_test_r448.npz          data/voc/   # 4,952, the published figure
 ./scripts/launch/up.sh image-shard-inference --nodes 6
 
-# run one and dump the merged detections (--post-thresh 0 = the reference protocol)
+# run it and dump the merged detections (--post-thresh 0 = the reference protocol)
 docker exec symphony-master /opt/akida-shard-client/run_client.sh \
-    --samples voc2007_test_r448 --count 4952 --ordered --post-thresh 0 --dump
+    --samples voc2007 --count 100 --ordered --post-thresh 0 --dump
 
 uv run python scripts/eval_shard_map.py --per-class
 ```
 
-`up.sh --dataset <npz>` still prepares a one-off kit from anywhere else. Either way the model is
-matched to the frames by input shape, so nothing has to be named or configured; a file that fits
-no model is reported and skipped rather than failing the launch.
+For the published figure on the whole split, point the launcher at the full kit and select it
+by its own name:
+
+```bash
+./scripts/launch/up.sh image-shard-inference --nodes 6 \
+    --dataset ~/data/voc/VOCdevkit/voc2007_test_r448.npz
+docker exec symphony-master /opt/akida-shard-client/run_client.sh \
+    --samples voc2007_test_r448 --count 4952 --ordered --post-thresh 0 --dump
+```
+
+Either way the model is matched to the frames by input shape, so nothing has to be named or
+configured; a file that fits no model is reported and skipped rather than failing the launch.
 
 `--ordered` matters: it makes frame *i* be sample *i*, which is what lets a dump be paired with
 ground truth. The dashboard passes it automatically.
 
 The scorer prints three rows. **fleet** is what the chips produced; **reference** is the kit's
 own stored detections scored by the same code; **published** is the recorded target. Read the
-fleet row against the reference row — both go through one scorer, so any drift in scoring moves
+fleet row against the reference row: both go through one scorer, so any drift in scoring moves
 them together and cannot be mistaken for a pipeline regression. (The reference row itself sits
 between 8e-5 and 1.6e-3 above the published target; that offset is upstream of this repo, and
 `scripts/eval_shard_map.py` records what was ruled out.)
@@ -162,8 +171,8 @@ frames**. Only the full split reproduces these; the 500-frame kit stores `-1.0` 
 on purpose.
 
 Match `--post-thresh` between the client and the scorer. The reference carries every merged
-box, so scoring a gated run against an ungated reference makes the gate look like a regression
-— at gate 0.5 the same run reads 0.5401 against 0.5672. Gate both and they agree exactly.
+box, so scoring a gated run against an ungated reference makes the gate look like a regression:
+at gate 0.5 the same run reads 0.5401 against 0.5672. Gate both and they agree exactly.
 </details>
 
 <details>
@@ -172,16 +181,16 @@ box, so scoring a gated run against an ungated reference makes the gate look lik
 Before any of the above, `scripts/verify_reference.sh` runs the ported pipeline on one chip and
 compares **every merged box, score, label and truncated flag** against the kit's reference
 detections. It fails on the first frame that disagrees and names the exact box, rather than
-surfacing later as a vague point or two of mAP — and if it passes on every frame, the mAP is
+surfacing later as a vague point or two of mAP, and if it passes on every frame, the mAP is
 identical to the published one by construction.
 
 ```bash
-scripts/verify_reference.sh --frames 500                        # smallest kit in data/voc
-scripts/verify_reference.sh --npz data/voc/voc2007_test_r448.npz --frames all
+scripts/verify_reference.sh --frames all                        # the committed 100-frame kit
+scripts/verify_reference.sh --npz ~/data/voc/VOCdevkit/voc2007_test_r448.npz --frames all
 ```
 
 It also cross-checks `models/tiled_yolov2_voc_meta.json` against the configuration stored inside
-the kit — anchors, labels, tile geometry, thresholds and all nine merge parameters — which is the
+the kit (anchors, labels, tile geometry, thresholds and all nine merge parameters), which is the
 cheapest guard against a mismatched model/anchors pair.
 
 Run it with the cluster **down**: it takes a chip for itself, and driving the same chip from two
@@ -189,7 +198,7 @@ processes invites a DMA wedge.
 
 Reading a bad mAP, if it ever comes to that: near 22–23 means the merge is not running at all;
 35–36 means the `truncated` flag is being lost; 40–44 means one merge parameter is off; below 20
-is upstream of the merge — channel layout, `predict` scaling, anchors, or RGB vs BGR.
+is upstream of the merge: channel layout, `predict` scaling, anchors, or RGB vs BGR.
 </details>
 
 <details>
@@ -206,14 +215,14 @@ merge parameter so nothing is transcribed by hand.
 
 **The model and its anchors must travel together.** A checkpoint trained with regenerated
 anchors decodes to nonsense against any other anchor set. These anchors stand for object sizes
-of 27×39, 53×94, 93×97, 140×174 and 192×196 pixels — all of which fit inside a 224 tile, which
+of 27×39, 53×94, 93×97, 140×174 and 192×196 pixels, all of which fit inside a 224 tile, which
 is why they were regenerated; the 448 checkpoint's anchors include a 311×336 box that cannot.
 
 Three things about running it that each cost real accuracy to get wrong:
 
 - **`predict`, never `forward`.** `predict` rescales the integer potentials into the float range
-  the decode expects. The rescale is **per output channel** — 125 distinct scales spanning 554 to
-  28,029 — so no single global constant can stand in for it, and `predict` costs nothing extra.
+  the decode expects. The rescale is **per output channel**: 125 distinct scales spanning 554 to
+  28,029, so no single global constant can stand in for it, and `predict` costs nothing extra.
 - **Anchors are fed unchanged to all six tiles**, the downscaled whole-frame one included. A YOLO
   head encodes size in units of input pixels, so decoding already yields the correct
   tile-normalised size. Halving them for the sixth tile looks algebraically plausible and costs
@@ -222,7 +231,7 @@ Three things about running it that each cost real accuracy to get wrong:
   22.70 against 49.14. Plain NMS cannot weld two halves of an object together, and cannot tell a
   duplicate from a fragment.
 
-Requires **akida 2.19.2** — the `.fbz` is serialized by it and 2.19.1 refuses to deserialize it.
+Requires **akida 2.19.2**: the `.fbz` is serialized by it and 2.19.1 refuses to deserialize it.
 `docker/Dockerfile` pins that version into `/opt/akida-venv`, so rebuild the image after pulling
 a change that touches `docker/`.
 </details>
@@ -238,12 +247,12 @@ a change that touches `docker/`.
    interior seams at all.
 2. **Fuse seam fragments.** Two detections fuse when they share a class, come from *different*
    tiles, and are complementarily truncated along one axis. The pair is replaced by its
-   **enclosing box on both axes** — a seam cuts the object, not just its box, so the two extents
+   **enclosing box on both axes**: a seam cuts the object, not just its box, so the two extents
    across the split belong to two different pieces rather than being two estimates of one edge.
    Fusion is transitive, so an object split across three tiles collapses in one pass.
 3. **Containment suppression** at IoS 0.7, using intersection over the *victim's* area: a
    fragment covering a third of an object has IoU 0.33 with it but IoS 1.0. Only truncated boxes
-   may be removed — a small object genuinely inside a larger one of the same class is real, and
+   may be removed: a small object genuinely inside a larger one of the same class is real, and
    suppressing on containment alone cost 8.9 recall points.
 4. **Per-class NMS** at IoU 0.5, which removes the ordinary duplicates from overlapping tiles.
 5. **Clip**, **demote** the fragments fusion could not complete (`score *= 0.4`), sort, keep
@@ -270,7 +279,7 @@ concatenation for exactly that reason.
   `select(!mg)` + `EqualFreeSlot`) and `ShardSegmentService` / `ShardStitchService` (CPU, on the
   management host, `select(mg)`).
 - The client (`shard_client.py`, in the master) streams frames through the three stages as a
-  bounded pipeline — one SOAM session each, wired submit→fetch→submit, capped by an in-flight
+  bounded pipeline: one SOAM session each, wired submit→fetch→submit, capped by an in-flight
   semaphore so `/shared` only holds a few frames at once. Per-frame correlation is by an
   `image_id` tag echoed in every reply. It reads frames from the sample `.bin` on demand rather
   than preloading, which the 2.8 GiB full split needs.
@@ -282,7 +291,7 @@ concatenation for exactly that reason.
 - Decoding happens on the **device** side, not in the stitch stage: it belongs with whatever
   produced the potentials, and it shrinks what crosses the bus from a 7×7×125 grid per tile to
   the handful of boxes that survived the threshold.
-- There is no service→service chaining (SOAM CE has none without heavy nested sessions) — the
+- There is no service→service chaining (SOAM CE has none without heavy nested sessions), so the
   thin client sequences the stages while doing no image math itself.
 - Symphony console: `https://localhost:8443/platform` (Admin/Admin).
 </details>
@@ -290,21 +299,20 @@ concatenation for exactly that reason.
 <details>
 <summary><b>Sample data</b></summary>
 
-Two kinds, and the difference matters for what you can read off a run.
+[`data/voc2007/`](../../../data/README.md) carries a real VOC2007-test kit (100 frames, ground
+truth and this model's own reference detections) committed through Git LFS, so a fresh clone
+gets detections and a real mAP with no external data. It becomes the sample set `voc2007`,
+named after its folder.
 
-`data/samples/tiled_yolov2_voc.npz` (Git LFS) is **random 448 noise** — the fallback that always
-travels with the repo, so a fresh clone can demo the fleet with no external data. It exercises
-every stage and every throughput number, but it contains no objects, so **an empty result is the
-correct one** and accuracy is not evaluated. The dashboard says so in a banner. Regenerate with
-`uv run python scripts/make_shard_samples.py`.
+Pass any other kit to `./scripts/launch/up.sh --dataset <npz>` and it becomes an extra set named
+after its own file, which the client selects with `--samples <name>`; that is the route to the
+full 4,952-frame split (see *Measuring accuracy* above).
 
-The **VOC2007 test kit** `.npz` files are the real thing; see *Measuring accuracy* above. Pass
-one to `./scripts/launch/up.sh --dataset <npz>` and it becomes a named sample set the client selects with
-`--samples <name>`.
-
-Either way `src/common/prepare_samples.py` flattens the frames into
-`/shared/samples/<set>.bin` plus a sidecar, and the numpy-free client streams whole frames as
-binary — the same path the vww/kws sets use.
+Either way `src/common/prepare_samples.py` flattens the frames into `/shared/samples/<set>.bin`
+plus a sidecar, and the numpy-free client streams whole frames as binary, the same path the
+vww/kws sets use. If the kit was never fetched (`git lfs pull` skipped), the client falls back
+to random 448 noise: every stage and every throughput number is still exercised, but there is
+nothing to detect, and the dashboard says so in a banner.
 </details>
 
 <details>
@@ -313,14 +321,14 @@ binary — the same path the vww/kws sets use.
 The client reports **frames/sec**, **chips used**, per-chip **tile distribution**, average
 on-chip latency per tile, and the fleet **speedup** vs one chip. A single chip runs a frame's six
 tiles serially (≈ 6 × tile latency); the fleet runs them in parallel, so full-frame throughput
-approaches a single chip's 224 throughput — higher effective resolution at roughly the cost of
+approaches a single chip's 224 throughput: higher effective resolution at roughly the cost of
 one 224 inference.
 
 Measured on AKD1500, **73.4 ms per tile** on-chip plus 0.5 ms to decode it:
 
 | chips | frames/sec | vs one chip | of the theoretical ceiling |
 |---|---|---|---|
-| 1 (six tiles serially) | 2.27 | 1.0× | — |
+| 1 (six tiles serially) | 2.27 | 1.0× | n/a |
 | 6 (one per tile) | **13.01** | 5.7× | 96% |
 | 7 (`--nodes all`, CE cap) | 14.83 | 6.5× | 92% |
 
@@ -337,16 +345,16 @@ the frame (`aeroplane`, `train`) and clearly **helps** medium or numerous ones (
 <details>
 <summary><b>Troubleshooting</b></summary>
 
-- **An inference instance never maps on-chip:** check its log —
+- **An inference instance never maps on-chip:** check its log:
   `docker exec symphony-compute-0 bash -lc 'tail -n 40 /shared/soam/shard-inference/logs/si-*.log'`.
-- **Segment or stitch failed to start:** they run a worker subprocess too —
+- **Segment or stitch failed to start:** they run a worker subprocess too:
   `tail -n 40 .cluster/shared/soam/shard-cpu/logs/*.log`.
 - **Segment/stitch didn't come up on the management host:** if CE won't place workload instances
   on `mg`, edit `service/*/Shard{Segment,Stitch}Service.xml` to `resReq="select(!mg)"` +
   `resourceGroupName="ComputeHosts"` (they'll co-locate with inference; CPU contention is
   negligible since inference is on-chip), rebuild, relaunch.
 - **Chip stuck (DMA timeout):** `sudo modprobe -r akida-pcie && sudo modprobe akida-pcie`,
-  relaunch. Avoid driving a chip from two processes at once — don't run
+  relaunch. Avoid driving a chip from two processes at once; don't run
   `scripts/verify_reference.sh` while the cluster is up.
 - **`Cannot deserialize the model: created with Akida 2.19.2`:** the image was built with an
   older akida pin. Check with `docker run --rm --entrypoint /opt/python3.12/bin/python3.12
@@ -355,7 +363,7 @@ the frame (`aeroplane`, `train`) and clearly **helps** medium or numerous ones (
 - **Fewer nodes than chips:** CE caps the cluster at 64 cores → master + 7 compute; extra chips
   idle. `--nodes` can only go down from there.
 - **Anything looks structurally wrong with the image:**
-  `docker run --rm --entrypoint /usr/local/bin/verify-image symphony-akida --full` — it names
+  `docker run --rm --entrypoint /usr/local/bin/verify-image symphony-akida --full`; it names
   the broken invariant (the `soamapi` import, the akida import, an `ldd` gap, PKI expiry, a
   `7.3.2` literal that no longer matches the tree).
 </details>

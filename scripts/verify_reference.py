@@ -16,8 +16,8 @@ the cheapest guard against a mismatched model/anchors pair.
 Runs inside the demo image (it needs akida). Use scripts/verify_reference.sh, which launches a
 throwaway privileged container on one chip.
 
-    scripts/verify_reference.sh --frames 500
-    scripts/verify_reference.sh --npz /data/voc2007_test_r448.npz --frames all
+    scripts/verify_reference.sh --frames all
+    scripts/verify_reference.sh --npz ~/data/voc/VOCdevkit/voc2007_test_r448.npz --frames all
 """
 import argparse
 import json
@@ -94,7 +94,7 @@ def report_frame(index, got, want):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--npz", default="/data/voc2007_test_r448_first500.npz")
+    parser.add_argument("--npz", default="/data/voc2007_test_r448_100.npz")
     parser.add_argument("--model", default="/models/tiled_yolov2_voc.fbz")
     parser.add_argument("--meta", default="/models/tiled_yolov2_voc_meta.json")
     parser.add_argument("--frames", default="500", help="how many frames, or 'all'")

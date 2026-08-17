@@ -18,8 +18,8 @@ stage and every throughput number but contains no objects to find. Reports frame
 per-chip distribution and the fleet speedup over a single chip, and can dump the merged
 detections for scoring.
 
-    run_client.sh --count 200
-    run_client.sh --samples voc2007_test_r448 --count 4952 --ordered --post-thresh 0 --dump
+    run_client.sh --count 100
+    run_client.sh --samples voc2007 --count 100 --ordered --post-thresh 0 --dump
 """
 from __future__ import print_function
 import argparse

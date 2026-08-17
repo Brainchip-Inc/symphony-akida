@@ -73,7 +73,10 @@ def list_datasets():
                     "input_shape": list(side.get("input_shape") or []),
                     "has_ground_truth": bool(side.get("has_ground_truth")),
                     "source_npz": source,
-                    "is_random": not side.get("has_ground_truth")})
+                    # The honest flag the dataset itself carries, not an inference from missing
+                    # ground truth: a real frames-only kit has no ground truth either, and
+                    # calling it noise would tell the user to throw away good detections.
+                    "is_random": bool(side.get("random"))})
     out.sort(key=lambda d: (d["is_random"], -d["count"]))
     return out
 
@@ -336,13 +339,14 @@ async function loadDatasets() {
   sel.innerHTML = d.datasets.map(s =>
     `<option value="${s.name}" data-count="${s.count}" data-random="${s.is_random}"`
     + ` data-gt="${s.has_ground_truth}" data-source="${s.source_npz}">`
-    + `${s.name} — ${s.count.toLocaleString()} frames${s.has_ground_truth ? ' (with ground truth)' : ''}</option>`).join('');
+    + `${s.name} · ${s.count.toLocaleString()} frames${s.has_ground_truth ? ' (with ground truth)' : ''}</option>`).join('');
   sel.onchange = onDataset; onDataset();
 }
 function onDataset() {
   const opt = document.getElementById('dataset').selectedOptions[0];
   if (!opt) return;
   const total = +opt.dataset.count, isRandom = opt.dataset.random === 'true';
+  const hasGt = opt.dataset.gt === 'true';
   const source = (opt.dataset.source || '').split('/').pop();
   const count = document.getElementById('count');
   count.max = total; if (+count.value > total) count.value = total;
@@ -350,12 +354,17 @@ function onDataset() {
     ? `<div class="note warn"><b>Random input.</b> This set is uniform 448 noise, so it contains
        no objects: an empty or near-empty result is the <i>correct</i> one, and accuracy is not
        evaluated. It exercises every stage and every throughput number. For detections and mAP,
-       symlink a test kit into <code>data/voc/</code> and relaunch; every kit found there is
-       offered above. See <code>data/voc/README.md</code>.</div>`
-    : `<div class="note"><b>${total.toLocaleString()} real frames with ground truth</b>
+       fetch the committed VOC kit with <code>git lfs pull</code> and relaunch. See
+       <code>data/README.md</code>.</div>`
+    : hasGt
+    ? `<div class="note"><b>${total.toLocaleString()} real frames with ground truth</b>
        ${source ? 'from <code>'+source+'</code>' : ''}. mAP is measured on exactly the frames you
-       run. The published figure is defined on the whole 4,952-frame split and with the post-merge
-       gate at 0, which is how the reference measures it.</div>`;
+       run, with the post-merge gate at 0, which is how the reference measures it. A kit carries
+       its own targets for its own frames; the published 49.14 mAP50 is the whole 4,952-frame
+       split.</div>`
+    : `<div class="note"><b>${total.toLocaleString()} real frames, no ground truth</b>
+       ${source ? 'from <code>'+source+'</code>' : ''}. Detections are drawn and every throughput
+       number is real, but this set carries nothing to score them against, so no mAP.</div>`;
 }
 function stat(n, l, sub) {
   return `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div>`
@@ -411,7 +420,7 @@ async function run() {
     const r = await fetch('/api/run', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({dataset, count, post_thresh: post})});
     const d = await r.json();
-    if (d.error) { msg.className='err'; msg.textContent = d.error + (d.detail? (' — '+d.detail):''); btn.disabled=false; return; }
+    if (d.error) { msg.className='err'; msg.textContent = d.error + (d.detail? (': '+d.detail):''); btn.disabled=false; return; }
     LAST = d;
     msg.innerHTML = `${d.images_done.toLocaleString()} frames (${d.segments_done.toLocaleString()} tiles) on `
       + `${d.chips} chips · avg ${d.avg_boxes} boxes/frame · ${d.image_errors} frame errors`

@@ -1,4 +1,4 @@
-# Symphony + Akida — on-chip fleet inference
+# Symphony + Akida: on-chip fleet inference
 
 Distribute AI inference across a fleet of **BrainChip Akida** devices (AKD1500 and/or
 AKD1000) on an **IBM Spectrum Symphony** (Community Edition) cluster. One master + one
@@ -9,7 +9,7 @@ device each node actually holds, so a mixed fleet reports itself honestly.
 ## Three demos, one image
 
 All apps build from the same image (`symphony-akida`) and the same cluster.
-The launcher activates exactly one at a time — they never run in parallel. Run them
+The launcher activates exactly one at a time; they never run in parallel. Run them
 back-to-back to show the contrast:
 
 | App | Transport | Dispatch | Effect | Guide |
@@ -21,7 +21,7 @@ back-to-back to show the contrast:
 Each app's README is the full clone → build → launch walkthrough.
 
 <details>
-<summary><b>Setup (once — shared by all three apps)</b></summary>
+<summary><b>Setup (once, shared by all three apps)</b></summary>
 
 Run on the host with the Akida cards (`/dev/akd1500_*` and/or `/dev/akida*` + the `akida_pcie` driver) and Docker.
 The build needs network access to Docker Hub, PyPI and GitHub releases; it needs **no**
@@ -29,7 +29,7 @@ private registry and no IBM credentials.
 
 ```bash
 git clone <repo-url> symphony-akida && cd symphony-akida
-git lfs install && git lfs pull                    # model .fbz + anchors + sample .npz
+git lfs install && git lfs pull                    # ~91 MiB: model .fbz + anchors + datasets
 curl -LsSf https://astral.sh/uv/install.sh | sh    # host tooling for the dashboards
 uv sync
 docker build --build-arg ACCEPT_IBM_LICENSE=yes \
@@ -44,7 +44,7 @@ and prints what it is asking you to agree to. See [Licensing](#licensing).
 The first build pulls ~1.5 GB (IBM's Symphony CE image) plus ~67 MB (CPython 3.12), so it
 takes a while; rebuilds are cached.
 
-Sanity-check a fresh build before launching anything — it asserts every invariant the apps
+Sanity-check a fresh build before launching anything; it asserts every invariant the apps
 depend on and names the exact one that broke:
 
 ```bash
@@ -62,7 +62,7 @@ bring the other up:
 ./scripts/launch/down.sh && ./scripts/launch/up.sh <batch-inference|serial-http-round-robin|image-shard-inference>
 ```
 
-`up.sh` takes `--nodes N|all` to choose how many chips to use — it defaults to 6 for
+`up.sh` takes `--nodes N|all` to choose how many chips to use. It defaults to 6 for
 `image-shard-inference`, one per tile of a 448 frame. Both launchers document themselves:
 `./scripts/launch/up.sh --help` lists the apps, flags and environment overrides, and
 `./scripts/launch/down.sh --help` explains what teardown removes.
@@ -75,9 +75,9 @@ bring the other up:
 docker/     Dockerfile (public sources only) + entrypoint + the patch / PKI / verify
             scripts it runs at build time; bakes all three app backends
 scripts/    launch/  up.sh <app> [--nodes N|all] [--dataset <npz>] / down.sh, both --help
-            plus sample generation, reference verification, mAP scoring
+            plus reference verification and mAP scoring
 models/     on-chip .fbz models + anchors (Git LFS)
-data/       samples/ committed .npz sets (Git LFS); voc/ test kits symlinked in, never committed
+data/       one folder per dataset, one .npz in each, all Git LFS (see data/README.md)
 src/
   common/   shared code: akida_chip (on-chip core), tiled_shard (tile geometry, decode and
             merge), detection_map (mAP), testkit (VOC test kit reader), draw_detections,
@@ -93,15 +93,15 @@ src/
 <summary><b>Design constraints</b></summary>
 
 - **Community Edition ≤ 64 cores** → master + 7 compute; an 8th chip idles.
-- **On-chip only** — a node with no mappable Akida device is not used for work.
-- **Six chips for the shard demo** — one per tile of a 448 frame; the sixth tile is the whole
+- **On-chip only**: a node with no mappable Akida device is not used for work.
+- **Six chips for the shard demo**: one per tile of a 448 frame; the sixth tile is the whole
   frame downscaled, and dropping it costs more accuracy than dropping the other five.
-- **Repo-local** — everything under `.cluster/` (bind-mounted to `/shared`); no `/opt`, no host `sudo`.
-- **The image builds from public sources only** — clone and `docker build`, nothing from a
+- **Repo-local**: everything under `.cluster/` (bind-mounted to `/shared`); no `/opt`, no host `sudo`.
+- **The image builds from public sources only**: clone and `docker build`, nothing from a
   private registry. The Symphony CE tree is harvested out of IBM's own
   `ibmcom/spectrum-symphony:7.3.2.0` (pinned by digest), CPython 3.12 from a pinned
   python-build-standalone release, and `akida` from PyPI. See *How the image is built*.
-- **EL8 is forced, not chosen** — the akida wheel is `manylinux_2_28` and needs glibc ≥ 2.26
+- **EL8 is forced, not chosen**: the akida wheel is `manylinux_2_28` and needs glibc ≥ 2.26
   with GLIBCXX ≥ 3.4.22, so it cannot run on IBM's UBI 7.9 base; and Symphony's only Python
   SOAM binding is a sourceless `.pyc` frozen to the CPython **3.6** ABI. EL8 is the only line
   that ships python3.6 *and* supports python3.12. EL9 dropped python3.6. EL8 goes EOL
@@ -116,27 +116,27 @@ src/
 
 | stage | from | does |
 |---|---|---|
-| `symphony` | `ibmcom/spectrum-symphony:7.3.2.0`, digest-pinned | nothing — it exists only so the runtime stage can `COPY --from` the installed `/opt/ibm/spectrumcomputing` tree, including the `pythonapi_3.6.7` SOAM binding and the CE entitlement. IBM publishes CE only as an image, and the 3 GB installer is behind an IBMid, so harvesting is the only way to build this from a fresh clone |
+| `symphony` | `ibmcom/spectrum-symphony:7.3.2.0`, digest-pinned | nothing; it exists only so the runtime stage can `COPY --from` the installed `/opt/ibm/spectrumcomputing` tree, including the `pythonapi_3.6.7` SOAM binding and the CE entitlement. IBM publishes CE only as an image, and the 3 GB installer is behind an IBMid, so harvesting is the only way to build this from a fresh clone |
 | runtime | `rockylinux/rockylinux:8.10` | OS prerequisites, `egoadmin` 1000:1000, the harvested tree, a fresh 10-year PKI, CPython 3.12 in `/opt/python3.12`, akida + numpy in `/opt/akida-venv`, then this repo's entrypoint and three app backends |
 
 Three build-time scripts do the work that makes the harvested tree usable, and each one fails
 the build rather than shipping something subtly wrong:
 
-- **`docker/patch_symphony.sh`** — extends the kernel-major check in `profile.soam` and
+- **`docker/patch_symphony.sh`**: extends the kernel-major check in `profile.soam` and
   `profile.perf` (IBM's copies accept only 3/4/5, so on a 6.x host `BINARY_TYPE` stays `fail`
   and every SOAM path resolves under `soam/7.3.2/fail/`), fixes `BINARY_TYPE` in
   `webserverstart.sh` behind the `:8443` console, and restores the stock `ego.conf` and
   SD/RS service definitions. The last part is deliberate: IBM's image turns on
   `EGO_TRANSPORT_SECURITY=SSL` and sets `EGO_LIM_IS_IN_CONTAINER=Y`, neither of which this
-  demo has ever run on — and the latter changes how LIM counts cores, which matters because
+  demo has ever run on, and the latter changes how LIM counts cores, which matters because
   the cluster sits exactly on the CE 64-core cap.
-- **`docker/gen_certs.sh`** — mints a fresh 10-year PKI. IBM's baked certificates are all
+- **`docker/gen_certs.sh`**: mints a fresh 10-year PKI. IBM's baked certificates are all
   expired: the `wlp` leaf in January 2023, and `kernel/conf/server.pem` is the gSOAP sample
   certificate that expired in **2005**. Their `generate_ssl.sh` cannot help, since its
   openssl half is commented out and it re-signs with the expired CA. The script reads the
   keystore password and aliases out of IBM's own keystores rather than assuming them, so
   Liberty's `server.xml` keeps working untouched.
-- **`docker/verify_image.sh`** — the acceptance test, also installed as
+- **`docker/verify_image.sh`**: the acceptance test, also installed as
   `/usr/local/bin/verify-image`. It asserts `import soamapi` under python3.6, `import akida`
   under python3.12, the `ldd` closure of IBM's RHEL7-era binaries now running on glibc 2.28,
   that the bundled JRE runs, that `profile.platform` resolves `BINARY_TYPE` with no `/fail/`

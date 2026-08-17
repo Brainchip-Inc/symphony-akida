@@ -118,7 +118,7 @@ def _node_record(url, health, roster_by_url):
 
     host = health.get("host") or ""
     mapped = bool(health.get("akida_mapped"))
-    lines = ["model: " + (health.get("model") or "—")]
+    lines = ["model: " + (health.get("model") or "-")]
     if health.get("akida_version"):
         lines.append("akida " + health["akida_version"])
     if mapped:
@@ -173,7 +173,8 @@ def api_samples():
     """Prepared .npz-derived datasets with their offered sample count.
 
     An allowlisted model with no prepared set simply does not appear here, so the dropdown
-    never offers a workload the fleet has no samples for (surface_search_classifier today).
+    never offers a workload the fleet has no samples for. Every allowlisted model ships with a
+    dataset today, but one of them is honest noise and is flagged as such rather than hidden.
     """
     out = []
     if os.path.isdir(SAMPLES_DIR):
@@ -239,9 +240,13 @@ def api_run_samples():
     per = int(side["per_sample_bytes"])
     total = int(side["count"])
     class_names = side.get("class_names") or []
-    bin_path = os.path.join(SAMPLES_DIR, model + ".bin")
+    # Keyed off the set, not the model: sets are named after their dataset folder, and a model
+    # can have more than one (up.sh --dataset). The sidecar the user picked names its own .bin.
+    set_name = side.get("set") or os.path.basename(side_path)[:-len(".samples.json")]
+    bin_path = os.path.join(SAMPLES_DIR, set_name + ".bin")
     if not os.path.isfile(bin_path):
-        return jsonify({"ok": False, "error": "no .bin for %s (run prepare_samples.py)" % model}), 400
+        return jsonify({"ok": False,
+                        "error": "no .bin for set %s (run prepare_samples.py)" % set_name}), 400
     n = min(total, LIMIT)
     with open(bin_path, "rb") as fh:
         blob = fh.read(n * per)
@@ -325,16 +330,17 @@ APP_JS = """
 const $=s=>document.querySelector(s), api=(p,b)=>fetch(p,b?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}:{}).then(r=>r.json());
 function log(m){$('#log').textContent=('['+new Date().toLocaleTimeString()+'] '+m+'\\n')+$('#log').textContent;}
 let DATASETS=[];
-// A model with no dataset of its own gets a synthesised noise set (prepare_samples.py), which
-// is runnable but says nothing about accuracy. Say so where the run is started, not after it.
+// A dataset can be uniform noise -- it says so in its own .npz, and the sidecar carries the
+// flag. Runnable, but it says nothing about accuracy: say so where the run is started, not
+// after it.
 function onDataset(){
   const d=DATASETS.find(x=>x.file===$('#ds').value);
   $('#dsnote').innerHTML = (d && d.random)
-    ? `<div class="note warn"><b>Random input.</b> <code>${d.model}</code> ships without a
-       dataset, so this set is uniform noise. Throughput, latency and the per-chip split below
-       are all real; the predicted classes are not, and the histogram should be read as noise.
-       Drop a <code>${d.model}.npz</code> into <code>data/samples/</code> and relaunch to run it
-       on real samples.</div>`
+    ? `<div class="note warn"><b>Random input.</b> <code>${d.model}</code> ships without real
+       samples, so this dataset is uniform noise. Throughput, latency and the per-chip split
+       below are all real; the predicted classes are not, and the histogram should be read as
+       noise. Add a folder of real samples under <code>data/</code> and relaunch to run it on
+       them &mdash; see <code>data/README.md</code>.</div>`
     : '';
 }
 async function refresh(){
@@ -375,7 +381,7 @@ refresh();setInterval(refresh,5000);
 # Concatenated, never %-formatted: the CSS is full of {braces} and the JS of ${literals}
 # and `width:...%`, all of which a format string would mangle. See src/common/dashboard_ui.py.
 PAGE = ('<!doctype html>\n<html><head><meta charset="utf-8">'
-        '<title>SymAkida — Neuromorphic Model Service</title>\n<style>'
+        '<title>SymAkida · Neuromorphic Model Service</title>\n<style>'
         + ui.BASE_CSS + APP_CSS +
         '</style></head><body>\n'
         '<header>\n'
