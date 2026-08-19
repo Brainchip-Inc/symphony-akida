@@ -23,7 +23,7 @@ The whole pipeline is **three Symphony SOAM services**: the client only sends a 
 back merged detections:
 
 ```
-client (master, thin)                        SOAM services (scheduled by Symphony)
+client (master, thin)                        SOAM services (managed by Symphony)
   send 448 frame ──────────────▶ ShardSegmentService   (mgmt host, CPU)  → 6 × 224 tiles on /shared
   send 6 tile refs ────────────▶ ShardInferenceService (one per chip)    → predict + decode each
   send frame ref ──────────────▶ ShardStitchService    (mgmt host, CPU)  → merge + threshold

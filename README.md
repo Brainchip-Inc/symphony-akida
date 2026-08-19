@@ -32,11 +32,11 @@
 </p>
 
 Distribute AI inference across a fleet of **BrainChip Akida** neuromorphic processors,
-scheduled as ordinary cluster resources by **IBM Spectrum Symphony** (Community Edition).
-One management node plus one compute node per chip; each node maps its model onto its own
-silicon and runs inference **on-chip**. Three demo apps ship in one
-image and share one cluster, so you can run them back to back and watch the same hardware
-behave differently.
+managed as ordinary cluster resources by **IBM Spectrum Symphony** (Community Edition), a
+workload management solution. One management node plus one compute node per chip; each node
+maps its model onto its own silicon and runs inference **on-chip**. Three demo apps ship in
+one image and share one cluster, so you can run them back to back and watch the same
+hardware behave differently.
 
 > **This needs Akida hardware on the host.** There is no simulator path: a node with no
 > mappable Akida device is never given work, by design.
@@ -91,8 +91,8 @@ ships the test kit that proves it.
 
 ## How it runs
 
-An Akida device is treated as an ordinary cluster resource: a compute node owns it, and a
-service instance is bound to it. Everything runs in containers on **one host**. The
+An Akida device is a managed resource like any other: a compute node owns it, and a service
+instance is bound to it. Everything runs in containers on **one host**. The
 management node runs the EGO manager, the session manager and the client; each compute node
 owns exactly **one Akida device over PCIe** and hosts one service instance mapped to it.
 
