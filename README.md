@@ -34,7 +34,7 @@
 Distribute AI inference across a fleet of **BrainChip Akida** neuromorphic processors,
 scheduled as ordinary cluster resources by **IBM Spectrum Symphony** (Community Edition).
 One management node plus one compute node per chip; each node maps its model onto its own
-silicon with `hw_only=True` and runs inference **on-chip**. Three demo apps ship in one
+silicon and runs inference **on-chip**. Three demo apps ship in one
 image and share one cluster, so you can run them back to back and watch the same hardware
 behave differently.
 
@@ -87,7 +87,7 @@ into six 224 tiles, inferred in parallel on six chips through three SOAM service
 merged. That is worth **+8.6 mAP50** over the best single-device option, and the repo
 ships the test kit that proves it.
 
-![image-shard-inference dashboard](docs/assets/dashboard-image-shard-inference.png)
+![image-shard-inference dashboard](docs/assets/dashboard-image-shard-inference.webp)
 
 [Full guide](src/apps/image-shard-inference/README.md)
 
@@ -109,7 +109,7 @@ Three consequences worth knowing before you launch:
 
 - **Community Edition caps the cluster at 64 cores**, which is one master plus seven
   compute nodes. On an eight-chip host the eighth chip idles, and the launcher says so.
-- **On-chip only.** Each service instance maps its model with `hw_only=True`. A node whose
+- **On-chip only.** Each service instance maps its model onto its own chip. A node whose
   chip will not take the model does not become available for work.
 - **Six chips for the shard demo**, one per tile of a 448 frame. The sixth tile is the
   whole frame downscaled, and dropping it costs more accuracy than dropping the other five.
@@ -229,10 +229,13 @@ to `/shared`. Nothing is written to `/opt`, and teardown never needs `sudo`.
 
 ## Get the hardware
 
+These demos run on either Akida device family, and the apps read which one they are on
+from the chip itself.
+
 - **[AKD1500 M.2 card (B+M key)](https://shop.brainchipinc.com/products/akd1500-m-2-card-b-m-key)**, the part this fleet is built from.
-- **[BrainChip Shop](https://shop.brainchipinc.com/collections/all?sort_by=best-selling)** for the AKD1000 PCIe board, the Raspberry Pi dev kits and the rest.
-- No hardware yet? **Akida Cloud** runs models on real Akida silicon remotely, through the
-  [BrainChip Developer Hub](https://developer.brainchip.com/signup/).
+- **[AKD1000 PCIe board](https://shop.brainchipinc.com/products/akida%E2%84%A2-development-kit-pcie-board)** and the **[AKD1000 M.2 card](https://shop.brainchipinc.com/products/m-2-card-m-key)**.
+
+Both families are in the [BrainChip Shop](https://shop.brainchipinc.com/collections/all?sort_by=best-selling).
 
 ## Community and support
 
@@ -242,10 +245,10 @@ you ran, what happened, and what your fleet looks like.
 
 - [Sign up for the BrainChip Developer Hub](https://developer.brainchip.com/signup/) for tools, the model zoo and Akida Cloud
 - [Join the BrainChip Discord](https://discord.com/invite/9bmd9g52vn) for discussion and community help
-- [Documentation](https://doc.brainchipinc.com) for MetaTF and the Akida platform
-- [Newsletter](https://brainchip.com/newsletter/) for releases and announcements
-- [Contact sales](https://brainchip.com/contact/) to talk about a deployment
-- [LinkedIn](https://www.linkedin.com/company/brainchip-holdings-limited) and [X](https://x.com/BrainChip_inc)
+- [Read the documentation](https://doc.brainchipinc.com) for MetaTF and the Akida platform
+- [Subscribe to the newsletter](https://brainchip.com/newsletter/) for releases and announcements
+- [Get in touch with sales](https://brainchip.com/contact/) to talk about a deployment
+- Follow BrainChip on [LinkedIn](https://www.linkedin.com/company/brainchip-holdings-limited) and [X](https://x.com/BrainChip_inc)
 
 ## License
 
@@ -268,5 +271,5 @@ of every dataset under `data/`.
 
 ## Contributing
 
-This repository is maintained by BrainChip and does not accept unsolicited pull requests.
-Bug reports are welcome as issues. See [CONTRIBUTING.md](CONTRIBUTING.md).
+This repository is maintained by BrainChip, and changes are made by the maintainer team.
+Bug reports are very welcome as issues. See [CONTRIBUTING.md](CONTRIBUTING.md).

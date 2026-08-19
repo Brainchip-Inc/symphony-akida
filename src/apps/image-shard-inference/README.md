@@ -4,7 +4,7 @@ Take one **448×448×3** frame, split it into **six 224×224×3 tiles**, run eac
 model on a separate Akida chip in parallel**, then merge the six detection sets back into one
 result for the whole frame.
 
-![image-shard-inference dashboard: six tiles, six chips, one merged result](../../../docs/assets/dashboard-image-shard-inference.png)
+![image-shard-inference dashboard: six tiles, six chips, one merged result](../../../docs/assets/dashboard-image-shard-inference.webp)
 
 This is not a throughput trick. A 448 YOLOv2 **cannot map to AKD1500 at all**: `conv_0` accepts
 at most 256 in its second dimension, so sharding into 224 tiles is the only route to 448-class
