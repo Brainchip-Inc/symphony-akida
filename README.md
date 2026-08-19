@@ -45,6 +45,10 @@ Announced on the [BrainChip Developer Hub](https://developer.brainchip.com/symph
 
 <p align="center">
   <img src="docs/assets/three-apps.gif" alt="The three demo apps running on an eight-chip Akida fleet" width="900">
+  <br>
+  <sub>All three apps on the reference fleet: the concurrent SOAM fan-out, the serial
+  round-robin baseline, the six-chip shard pipeline, and the same fan-out driven from the
+  command-line client.</sub>
 </p>
 
 ## The three apps
@@ -52,11 +56,11 @@ Announced on the [BrainChip Developer Hub](https://developer.brainchip.com/symph
 All three build from the same image (`symphony-akida`) and the same cluster. The launcher
 activates exactly one at a time; they never run in parallel.
 
-| App | What it shows | On the reference fleet | Guide |
-|---|---|---|---|
-| **batch-inference** | One Symphony SOAM session fanned concurrently across every chip | every chip busy at once | [guide](src/apps/batch-inference/README.md) |
-| **serial-http-round-robin** | The deliberate "before" baseline: plain HTTP, one request at a time | roughly one chip busy at any moment | [guide](src/apps/serial-http-round-robin/README.md) |
-| **image-shard-inference** | One 448 frame split into six tiles, one per chip, merged back into one result | 49.14 mAP50 on the VOC2007 test split, six chips in parallel | [guide](src/apps/image-shard-inference/README.md) |
+| App | What it shows | On the reference fleet |
+|---|---|---|
+| **batch-inference** | One Symphony SOAM session fanned concurrently across every chip | every chip busy at once |
+| **serial-http-round-robin** | The deliberate "before" baseline: plain HTTP, one request at a time | roughly one chip busy at any moment |
+| **image-shard-inference** | One 448 frame split into six tiles, one per chip, merged back into one result | 49.14 mAP50 on the VOC2007 test split, six chips in parallel |
 
 ### batch-inference
 
@@ -66,8 +70,6 @@ throughput. How much a fleet buys you depends on the model: keyword spotting is 
 on-chip, so dispatch overhead dominates and the gain is modest. Image sharding puts 76 ms
 of work on each chip and scales far better.
 
-![batch-inference dashboard](docs/assets/dashboard-batch-inference.png)
-
 [Full guide](src/apps/batch-inference/README.md)
 
 ### serial-http-round-robin
@@ -75,8 +77,6 @@ of work on each chip and scales far better.
 The contrast case. A plain HTTP inference server on each chip, and a dashboard that
 dispatches one request at a time, round-robin. The fleet is the same; only the dispatch
 changed.
-
-![serial-http-round-robin dashboard](docs/assets/dashboard-serial-http-round-robin.png)
 
 [Full guide](src/apps/serial-http-round-robin/README.md)
 
@@ -86,8 +86,6 @@ Not a throughput trick. A 448 YOLOv2 cannot map to AKD1500 at all, so one frame 
 into six 224 tiles, inferred in parallel on six chips through three SOAM services, and
 merged. That is worth **+8.6 mAP50** over the best single-device option, and the repo
 ships the test kit that proves it.
-
-![image-shard-inference dashboard](docs/assets/dashboard-image-shard-inference.webp)
 
 [Full guide](src/apps/image-shard-inference/README.md)
 
