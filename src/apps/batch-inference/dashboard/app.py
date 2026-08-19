@@ -152,7 +152,7 @@ PAGE = ('<!doctype html>\n<html><head><meta charset="utf-8">'
         + ui.BASE_CSS + APP_CSS +
         '</style></head><body>\n'
         '<header>\n'
-        '  <h1>Symphony + Akida &mdash; fleet inference</h1>\n'
+        '  <h1>Symphony + Akida: fleet inference</h1>\n'
         '  <p>Submit a batch as one Symphony SOAM session; the session manager fans the tasks'
         ' across every Akida chip in parallel.</p>\n'
         '</header>\n<main>\n'

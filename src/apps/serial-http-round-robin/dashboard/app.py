@@ -340,7 +340,7 @@ function onDataset(){
        samples, so this dataset is uniform noise. Throughput, latency and the per-chip split
        below are all real; the predicted classes are not, and the histogram should be read as
        noise. Add a folder of real samples under <code>data/</code> and relaunch to run it on
-       them &mdash; see <code>data/README.md</code>.</div>`
+       them. See <code>data/README.md</code>.</div>`
     : '';
 }
 async function refresh(){
@@ -385,9 +385,9 @@ PAGE = ('<!doctype html>\n<html><head><meta charset="utf-8">'
         + ui.BASE_CSS + APP_CSS +
         '</style></head><body>\n'
         '<header>\n'
-        '  <h1>SymAkida &mdash; neuromorphic model service</h1>\n'
+        '  <h1>Symphony + Akida: serial round-robin</h1>\n'
         '  <p>Load, unload and hot-swap a model on every Akida chip in the fleet, then run a'
-        ' sample workload round-robin across them &mdash; one HTTP /infer at a time, the'
+        ' sample workload round-robin across them, one HTTP /infer at a time, the'
         ' deliberate contrast with the batch-inference app\'s concurrent SOAM fan-out.</p>\n'
         '</header>\n<main>\n'
         + ui.FLEET_HTML + APP_HTML +

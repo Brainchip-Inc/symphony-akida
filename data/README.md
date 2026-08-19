@@ -11,6 +11,14 @@ install, and no symlinks to set up.
 | `voc2007/` | `voc2007_test_r448_100.npz` | `tiled_yolov2_voc` | 100 | VOC2007-test kit: frames, ground truth **and** reference detections |
 | `surface_search_classifier/` | `random.npz` | `surface_search_classifier` | 256 | uniform noise; this model ships without real samples |
 
+## Provenance and terms
+
+Each set is derived from an upstream source that keeps its own terms: Google Speech
+Commands (CC BY 4.0), Visual Wake Words from COCO 2014, and the PASCAL VOC 2007 test
+split. `surface_search_classifier/` is seeded noise generated here, not real data. Full
+attributions are in [NOTICE](../NOTICE); consult the upstream project before
+redistributing derived data.
+
 ## How a dataset becomes a sample set
 
 At launch, `src/common/prepare_samples.py` flattens every folder into a form the clients can

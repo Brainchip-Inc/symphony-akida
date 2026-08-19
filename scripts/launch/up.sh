@@ -141,7 +141,7 @@ present=$(ls -d /dev/akd1500_* /dev/akida[0-9]* 2>/dev/null | grep -Ec 'akd1500_
 log "found $present Akida chip node(s); probing health (AKD1500 preferred)..."
 mapfile -t HEALTHY < <(docker run --rm --privileged --entrypoint /opt/akida-service/probe_chips.sh "$IMAGE" 2>/dev/null)
 total=${#HEALTHY[@]}
-[ "$total" -ge 1 ] || { echo "No healthy Akida chips found. Try: sudo modprobe -r akida-pcie && sudo modprobe akida-pcie" >&2; exit 1; }
+[ "$total" -ge 1 ] || { echo "No healthy Akida chips found. Try: sudo modprobe -r akida_pcie && sudo modprobe akida_pcie" >&2; exit 1; }
 [ "$total" -lt "$present" ] && log "$((present-total)) chip(s) unhealthy -- skipping"
 NODES=$total
 if [ "$WANT_NODES" != all ] && [ "$WANT_NODES" -lt "$NODES" ]; then

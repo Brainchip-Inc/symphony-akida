@@ -1,13 +1,15 @@
 # App: serial HTTP round-robin across the Akida fleet
 
-The "before" demo, restored and fixed. A laptop dashboard talks to a **plain HTTP
+The "before" demo. A laptop dashboard talks to a **plain HTTP
 inference server on each compute chip** and dispatches one `/infer` at a time,
 **round-robin** across the nodes, so roughly one chip is busy at a moment. It is the
 deliberate contrast to the `batch-inference` app, which submits a single Symphony SOAM
 session that Symphony fans **concurrently** across every chip. Run them one after the
 other to show the difference.
 
-Three things that were wrong in the original are fixed here:
+![serial-http-round-robin dashboard: one chip busy at a time](../../../docs/assets/dashboard-serial-http-round-robin.png)
+
+Three things this app is strict about:
 - **On-chip for real**: each node maps the model with `hw_only=True` on its own chip
   (via the shared `akida_chip` core), so the **ON-CHIP** badge is truthful, and the device
   beside it is the one that node actually holds (`AKD1500` or `AKD1000`, read from the
@@ -23,29 +25,16 @@ activates only one backend per run and tears any previous cluster down first, so
 demos never run in parallel.
 
 <details open>
-<summary><b>First run (fresh clone)</b></summary>
+<summary><b>Setup</b></summary>
 
-Run on the host with the Akida cards (needs `/dev/akd1500_*` and/or `/dev/akida*` and the `akida_pcie` driver) + Docker.
+Follow the [Quickstart](../../../README.md#quickstart) in the repository README to clone,
+fetch the LFS files, and build the image. Then:
 
 ```bash
-# 1. clone and fetch the LFS model + sample files
-git clone <repo-url> symphony-akida && cd symphony-akida
-git lfs install && git lfs pull
-
-# 2. install uv (host tooling) + sync the dashboard env
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uv sync
-
-# 3. build the image (shared by both apps): public sources only; slow the first
-#    time, cached after that. ACCEPT_IBM_LICENSE is required and has no default:
-#    see the repo README's Licensing section.
-docker build --build-arg ACCEPT_IBM_LICENSE=yes -f docker/Dockerfile -t symphony-akida .
-docker run --rm --entrypoint /usr/local/bin/verify-image symphony-akida --full
-
-# 4. launch the cluster in serial-http mode: auto-sizes to healthy chips, capped at 7
+# launch the cluster in serial-http mode: auto-sizes to healthy chips, capped at 7
 ./scripts/launch/up.sh serial-http-round-robin
 
-# 5. open the dashboard -- sizes the node list to the chips up.sh actually launched
+# open the dashboard -- sizes the node list to the chips up.sh actually launched
 ./src/apps/serial-http-round-robin/dashboard/run_dashboard.sh
 #   then browse http://localhost:5001
 ```
