@@ -14,6 +14,12 @@
   <img src="https://img.shields.io/badge/hardware-AKD1500%20%2F%20AKD1000-FF6A00.svg" alt="AKD1500 / AKD1000"/>
 </p>
 
+<p align="center">
+  <a href="https://developer.brainchip.com/signup/"><img src="https://img.shields.io/badge/BrainChip%20Developer%20Hub-sign%20up-0061ED.svg" alt="BrainChip Developer Hub"/></a>
+  <a href="https://discord.com/invite/9bmd9g52vn"><img src="https://img.shields.io/badge/Discord-join%20the%20community-5865F2.svg?logo=discord&logoColor=white" alt="Join the BrainChip Discord"/></a>
+  <a href="https://shop.brainchipinc.com/collections/all?sort_by=best-selling"><img src="https://img.shields.io/badge/Shop-get%20an%20AKD1500-FF6A00.svg" alt="BrainChip Shop"/></a>
+</p>
+
 # Symphony + Akida: on-chip fleet inference
 
 <p align="center">
@@ -234,8 +240,8 @@ Hit a problem reproducing a demo, or anything else in this repository?
 **[Open an issue](https://github.com/Brainchip-Inc/symphony-akida/issues)** and say what
 you ran, what happened, and what your fleet looks like.
 
-- [Discord](https://discord.com/invite/9bmd9g52vn) for discussion and community help
-- [BrainChip Developer Hub](https://developer.brainchip.com/signup/) for tools, the model zoo and Akida Cloud
+- [Sign up for the BrainChip Developer Hub](https://developer.brainchip.com/signup/) for tools, the model zoo and Akida Cloud
+- [Join the BrainChip Discord](https://discord.com/invite/9bmd9g52vn) for discussion and community help
 - [Documentation](https://doc.brainchipinc.com) for MetaTF and the Akida platform
 - [Newsletter](https://brainchip.com/newsletter/) for releases and announcements
 - [Contact sales](https://brainchip.com/contact/) to talk about a deployment

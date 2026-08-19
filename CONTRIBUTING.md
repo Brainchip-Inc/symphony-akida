@@ -38,7 +38,9 @@ Keep it factual and about a screen long. You do not need to diagnose the cause o
 a fix; a clear report of what broke is worth more.
 
 **Questions, ideas and showing us what you built** belong on the
-[BrainChip Discord](https://discord.com/invite/9bmd9g52vn).
+[BrainChip Discord](https://discord.com/invite/9bmd9g52vn), and the
+[BrainChip Developer Hub](https://developer.brainchip.com/signup/) has the tools, model zoo
+and docs behind the rest of the Akida platform.
 
 Fork it freely. The Apache 2.0 license exists so you can take this in whatever direction
 you want without asking us.
