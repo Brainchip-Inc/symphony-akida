@@ -56,7 +56,9 @@ activates exactly one at a time; they never run in parallel.
 
 Submit a batch as a single SOAM session. Symphony's session manager distributes the tasks
 across every chip in the fleet, and the dashboard shows the per-chip split and the
-throughput that buys you.
+throughput. How much a fleet buys you depends on the model: keyword spotting is 0.25 ms
+on-chip, so dispatch overhead dominates and the gain is modest. Image sharding puts 76 ms
+of work on each chip and scales far better.
 
 ![batch-inference dashboard](docs/assets/dashboard-batch-inference.png)
 
