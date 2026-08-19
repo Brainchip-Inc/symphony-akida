@@ -30,7 +30,7 @@ useful thing you can send us. Search the existing issues first, then include:
 - your host OS and kernel version
 - how many Akida devices you have and which family (`ls /dev/akd1500_* /dev/akida*`)
 - the `akida` version in the image:
-  `docker run --rm --entrypoint /opt/python3.12/bin/python3.12 symphony-akida -c 'import akida; print(akida.__version__)'`
+  `docker run --rm -e PYTHONPATH=/opt/akida-venv/lib/python3.12/site-packages --entrypoint /opt/python3.12/bin/python3.12 symphony-akida -c 'import akida; print(akida.__version__)'`
 - the output of `docker run --rm --entrypoint /usr/local/bin/verify-image symphony-akida --full`
 - the smallest useful log excerpt
 

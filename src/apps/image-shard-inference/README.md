@@ -347,8 +347,9 @@ the frame (`aeroplane`, `train`) and clearly **helps** medium or numerous ones (
   relaunch. Avoid driving a chip from two processes at once; don't run
   `scripts/verify_reference.sh` while the cluster is up.
 - **`Cannot deserialize the model: created with Akida 2.19.2`:** the image was built with an
-  older akida pin. Check with `docker run --rm --entrypoint /opt/python3.12/bin/python3.12
-  symphony-akida -c 'import akida;print(akida.__version__)'`, then rebuild:
+  older akida pin. Check with `docker run --rm -e PYTHONPATH=/opt/akida-venv/lib/python3.12/site-packages
+  --entrypoint /opt/python3.12/bin/python3.12 symphony-akida -c 'import
+  akida;print(akida.__version__)'`, then rebuild:
   `docker build --build-arg ACCEPT_IBM_LICENSE=yes -f docker/Dockerfile -t symphony-akida .`
 - **Fewer nodes than chips:** CE caps the cluster at 64 cores → master + 7 compute; extra chips
   idle. `--nodes` can only go down from there.
