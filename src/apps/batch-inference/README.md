@@ -5,30 +5,19 @@ manager fans the tasks across **every Akida chip in parallel**, each running the
 model mapped on-silicon (`hw_only`). The dashboard shows the per-chip distribution
 and throughput: the multi-Akida advantage over one chip serving inputs serially.
 
-<details open>
-<summary><b>First run (fresh clone)</b></summary>
+![batch-inference dashboard: one SOAM session fanned across every chip](../../../docs/assets/dashboard-batch-inference.png)
 
-Run on the host with the Akida cards (it needs `/dev/akd1500_*` and/or `/dev/akida*` and the `akida_pcie` driver) + Docker.
+<details open>
+<summary><b>Setup</b></summary>
+
+Follow the [Quickstart](../../../README.md#quickstart) in the repository README to clone,
+fetch the LFS files, and build the image. Then:
 
 ```bash
-# 1. clone and fetch the LFS model files
-git clone <repo-url> symphony-akida && cd symphony-akida
-git lfs install && git lfs pull
+# launch the cluster: auto-sizes to healthy chips, capped at 7 (CE limit)
+./scripts/launch/up.sh batch-inference
 
-# 2. install uv (host tooling) + sync the dashboard env
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uv sync
-
-# 3. build the image (Symphony CE + Akida runtime + our service & client): public
-#    sources only; slow the first time, cached after that. ACCEPT_IBM_LICENSE is
-#    required and has no default: see the repo README's Licensing section.
-docker build --build-arg ACCEPT_IBM_LICENSE=yes -f docker/Dockerfile -t symphony-akida .
-docker run --rm --entrypoint /usr/local/bin/verify-image symphony-akida --full
-
-# 4. launch the cluster: auto-sizes to healthy chips, capped at 7 (CE limit)
-./scripts/launch/up.sh
-
-# 5. open the dashboard, pick a model, set a sample count, Run
+# open the dashboard, pick a model, set a sample count, Run
 FLASK_PORT=5001 uv run python src/apps/batch-inference/dashboard/app.py
 #   then browse http://localhost:5001
 ```

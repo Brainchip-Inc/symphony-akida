@@ -4,6 +4,8 @@ Take one **448×448×3** frame, split it into **six 224×224×3 tiles**, run eac
 model on a separate Akida chip in parallel**, then merge the six detection sets back into one
 result for the whole frame.
 
+![image-shard-inference dashboard: six tiles, six chips, one merged result](../../../docs/assets/dashboard-image-shard-inference.png)
+
 This is not a throughput trick. A 448 YOLOv2 **cannot map to AKD1500 at all**: `conv_0` accepts
 at most 256 in its second dimension, so sharding into 224 tiles is the only route to 448-class
 accuracy on this part. On the full VOC2007 test split it is worth **+8.6 mAP50 over the best
@@ -52,30 +54,18 @@ confident false positives, and only the full complement lets fusion and containm
 clean them up. There is deliberately no cheaper 5-tile mode.
 
 <details open>
-<summary><b>First run (fresh clone)</b></summary>
+<summary><b>Setup</b></summary>
 
-Run on the host with the Akida cards (`/dev/akd1500_*` and/or `/dev/akida*` + the `akida-pcie`
-driver) + Docker. The launcher prefers AKD1500 chips, falling back to AKD1000/NSoC_v2.
+Follow the [Quickstart](../../../README.md#quickstart) in the repository README to clone,
+fetch the LFS files, and build the image. The launcher prefers AKD1500 chips, falling back
+to AKD1000/NSoC_v2. The VOC test kit is committed through Git LFS, so the Quickstart's
+`git lfs pull` is all it takes for real frames, detections and mAP.
 
 ```bash
-# 1. clone + fetch the LFS model/sample files
-git clone <repo-url> symphony-akida && cd symphony-akida
-git lfs install && git lfs pull
-
-# 2. install uv (host tooling) + sync the dashboard env
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uv sync
-
-# 3. build the image (bakes all three app backends)
-docker build --build-arg ACCEPT_IBM_LICENSE=yes -f docker/Dockerfile -t symphony-akida .
-
-# 4. the VOC test kit is committed (Git LFS), so step 1's `git lfs pull` is all it takes
-#    for real frames, detections and mAP
-
-# 5. launch the cluster on six chips, one per tile
+# launch the cluster on six chips, one per tile
 ./scripts/launch/up.sh image-shard-inference --nodes 6
 
-# 6. open the dashboard, pick a sample set, Run
+# open the dashboard, pick a sample set, Run
 uv run python src/apps/image-shard-inference/dashboard/app.py
 #   then browse http://localhost:5001
 ```
@@ -353,7 +343,7 @@ the frame (`aeroplane`, `train`) and clearly **helps** medium or numerous ones (
   on `mg`, edit `service/*/Shard{Segment,Stitch}Service.xml` to `resReq="select(!mg)"` +
   `resourceGroupName="ComputeHosts"` (they'll co-locate with inference; CPU contention is
   negligible since inference is on-chip), rebuild, relaunch.
-- **Chip stuck (DMA timeout):** `sudo modprobe -r akida-pcie && sudo modprobe akida-pcie`,
+- **Chip stuck (DMA timeout):** `sudo modprobe -r akida_pcie && sudo modprobe akida_pcie`,
   relaunch. Avoid driving a chip from two processes at once; don't run
   `scripts/verify_reference.sh` while the cluster is up.
 - **`Cannot deserialize the model: created with Akida 2.19.2`:** the image was built with an

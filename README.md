@@ -1,71 +1,197 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brainchip-logo-dark.svg">
+    <img src="docs/assets/brainchip-logo.svg" alt="BrainChip" width="260">
+  </picture>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License: Apache 2.0"/>
+  <img src="https://img.shields.io/badge/IBM%20Spectrum%20Symphony-CE%207.3.2-052FAD.svg?logo=ibm&logoColor=white" alt="IBM Spectrum Symphony Community Edition 7.3.2"/>
+  <img src="https://img.shields.io/badge/docker-required-2496ED.svg?logo=docker&logoColor=white" alt="Docker required"/>
+  <img src="https://img.shields.io/badge/python-3.10%2B-blue.svg?logo=python&logoColor=white" alt="Python 3.10+"/>
+  <img src="https://img.shields.io/badge/MetaTF-akida%202.19.2-FF6A00.svg" alt="MetaTF akida 2.19.2"/>
+  <img src="https://img.shields.io/badge/hardware-AKD1500%20%2F%20AKD1000-FF6A00.svg" alt="AKD1500 / AKD1000"/>
+</p>
+
 # Symphony + Akida: on-chip fleet inference
 
-Distribute AI inference across a fleet of **BrainChip Akida** devices (AKD1500 and/or
-AKD1000) on an **IBM Spectrum Symphony** (Community Edition) cluster. One master + one
-compute node per chip (capped at 7, the CE 64-core limit); each node maps the model onto
-its chip (`hw_only=True`) and runs inference **on-silicon**. Every dashboard names the
-device each node actually holds, so a mixed fleet reports itself honestly.
+<p align="center">
+  <a href="#the-three-apps">Apps</a> ·
+  <a href="#how-it-runs">How it runs</a> ·
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="#get-the-hardware">Hardware</a> ·
+  <a href="#community-and-support">Community</a> ·
+  <a href="#license">License</a>
+</p>
 
-## Three demos, one image
+Distribute AI inference across a fleet of **BrainChip Akida** neuromorphic processors,
+scheduled as ordinary cluster resources by **IBM Spectrum Symphony** (Community Edition).
+One management node plus one compute node per chip; each node maps its model onto its own
+silicon with `hw_only=True` and runs inference **on-chip**. Three demo apps ship in one
+image and share one cluster, so you can run them back to back and watch the same hardware
+behave differently.
 
-All apps build from the same image (`symphony-akida`) and the same cluster.
-The launcher activates exactly one at a time; they never run in parallel. Run them
-back-to-back to show the contrast:
+> **This needs Akida hardware on the host.** There is no simulator path: a node with no
+> mappable Akida device is never given work, by design.
 
-| App | Transport | Dispatch | Effect | Guide |
-|---|---|---|---|---|
-| **batch-inference** | Symphony SOAM | concurrent fan-out | every chip busy at once | [guide →](src/apps/batch-inference/README.md) |
-| **serial-http-round-robin** | plain HTTP | round-robin, one at a time | ~one chip busy at a moment | [guide →](src/apps/serial-http-round-robin/README.md) |
-| **image-shard-inference** | Symphony SOAM (3-stage) | split → fan-out → merge | one 448 frame across 6 chips in parallel, with a real mAP | [guide →](src/apps/image-shard-inference/README.md) |
+Announced on the [BrainChip Developer Hub](https://developer.brainchip.com/symphony-community-akida-bundle/).
 
-Each app's README is the full clone → build → launch walkthrough.
+<p align="center">
+  <img src="docs/assets/three-apps.gif" alt="The three demo apps running on an eight-chip Akida fleet" width="900">
+</p>
+
+## The three apps
+
+All three build from the same image (`symphony-akida`) and the same cluster. The launcher
+activates exactly one at a time; they never run in parallel.
+
+| App | What it shows | On the reference fleet | Guide |
+|---|---|---|---|
+| **batch-inference** | One Symphony SOAM session fanned concurrently across every chip | every chip busy at once | [guide](src/apps/batch-inference/README.md) |
+| **serial-http-round-robin** | The deliberate "before" baseline: plain HTTP, one request at a time | roughly one chip busy at any moment | [guide](src/apps/serial-http-round-robin/README.md) |
+| **image-shard-inference** | One 448 frame split into six tiles, one per chip, merged back into one result | 49.14 mAP50 on the VOC2007 test split, six chips in parallel | [guide](src/apps/image-shard-inference/README.md) |
+
+### batch-inference
+
+Submit a batch as a single SOAM session. Symphony's session manager distributes the tasks
+across every chip in the fleet, and the dashboard shows the per-chip split and the
+throughput that buys you.
+
+![batch-inference dashboard](docs/assets/dashboard-batch-inference.png)
+
+[Full guide](src/apps/batch-inference/README.md)
+
+### serial-http-round-robin
+
+The contrast case. A plain HTTP inference server on each chip, and a dashboard that
+dispatches one request at a time, round-robin. The fleet is the same; only the dispatch
+changed.
+
+![serial-http-round-robin dashboard](docs/assets/dashboard-serial-http-round-robin.png)
+
+[Full guide](src/apps/serial-http-round-robin/README.md)
+
+### image-shard-inference
+
+Not a throughput trick. A 448 YOLOv2 cannot map to AKD1500 at all, so one frame is split
+into six 224 tiles, inferred in parallel on six chips through three SOAM services, and
+merged. That is worth **+8.6 mAP50** over the best single-device option, and the repo
+ships the test kit that proves it.
+
+![image-shard-inference dashboard](docs/assets/dashboard-image-shard-inference.png)
+
+[Full guide](src/apps/image-shard-inference/README.md)
+
+## How it runs
+
+An Akida device is treated as an ordinary cluster resource: a compute node owns it, and a
+service instance is bound to it. Everything runs in containers on **one host**. The
+management node runs the EGO manager, the session manager and the client; each compute node
+owns exactly **one Akida device over PCIe** and hosts one service instance mapped to it.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/fleet-topology-dark.svg">
+    <img src="docs/assets/fleet-topology.svg" alt="One management node and one compute node per Akida device" width="820">
+  </picture>
+</p>
+
+Three consequences worth knowing before you launch:
+
+- **Community Edition caps the cluster at 64 cores**, which is one master plus seven
+  compute nodes. On an eight-chip host the eighth chip idles, and the launcher says so.
+- **On-chip only.** Each service instance maps its model with `hw_only=True`. A node whose
+  chip will not take the model does not become available for work.
+- **Six chips for the shard demo**, one per tile of a 448 frame. The sixth tile is the
+  whole frame downscaled, and dropping it costs more accuracy than dropping the other five.
 
 <details>
-<summary><b>Setup (once, shared by all three apps)</b></summary>
+<summary><b>Reference system</b></summary>
 
-Run on the host with the Akida cards (`/dev/akd1500_*` and/or `/dev/akida*` + the `akida_pcie` driver) and Docker.
-The build needs network access to Docker Hub, PyPI and GitHub releases; it needs **no**
-private registry and no IBM credentials.
+Every number in this repository was measured on this machine.
+
+| | |
+|---|---|
+| Host | Intel Core i7-11700B, 8 cores / 16 threads, 30 GB RAM |
+| OS | Ubuntu 24.04 LTS, kernel 6.17 |
+| PCIe fabric | PLX **PEX 8749**, 48-lane 18-port PCIe Gen 3 multi-root switch |
+| Accelerators | **8 x [AKD1500 M.2](https://shop.brainchipinc.com/products/akd1500-m-2-card-b-m-key)** behind that switch, plus 3 x AKD1000 PCIe boards |
+| Driver | out-of-tree `akida_pcie` kernel module |
+
+The switch is what makes the fleet interesting: eight M.2 cards on a single x86 host, each
+enumerating as its own PCIe endpoint (`/dev/akd1500_0` through `/dev/akd1500_7`), so
+Symphony can hand each one to a different compute node.
+
+Both device families work. The apps read the device off the chip's own `HwVersion` rather
+than assuming, so a mixed fleet reports itself honestly, and the launcher warns when it
+selects an AKD1000.
+</details>
+
+## Prerequisites
+
+- **Akida hardware** on the host, with the `akida_pcie` driver loaded, so that
+  `/dev/akd1500_*` and/or `/dev/akida*` exist.
+- **Docker.** Containers run privileged; there is no compose file and no Kubernetes.
+- **Git LFS.** The models and sample sets are LFS objects, about 95 MB.
+- **[uv](https://docs.astral.sh/uv/) and Python 3.10+** for the host-side dashboards.
+- **Network access** to Docker Hub, PyPI and GitHub releases. No IBM credentials and no
+  private registry are needed at any point.
+
+## Quickstart
 
 ```bash
-git clone <repo-url> symphony-akida && cd symphony-akida
-git lfs install && git lfs pull                    # ~91 MiB: model .fbz + anchors + datasets
+git clone https://github.com/Brainchip-Inc/symphony-akida.git && cd symphony-akida
+git lfs install && git lfs pull                    # ~95 MB: models, anchors, sample sets
 curl -LsSf https://astral.sh/uv/install.sh | sh    # host tooling for the dashboards
 uv sync
+
 docker build --build-arg ACCEPT_IBM_LICENSE=yes \
-    -f docker/Dockerfile -t symphony-akida .       # bakes ALL app backends
+    -f docker/Dockerfile -t symphony-akida .       # bakes all three app backends
+
+./scripts/launch/up.sh batch-inference             # auto-sizes to the healthy chips
+uv run python src/apps/batch-inference/dashboard/app.py
 ```
 
+Then open <http://localhost:5001>. Over SSH, forward it first:
+`ssh -L 5001:localhost:5001 <user>@<host>`.
+
+To switch demos, tear down and bring the other up:
+
+```bash
+./scripts/launch/down.sh
+./scripts/launch/up.sh <batch-inference|serial-http-round-robin|image-shard-inference>
+```
+
+Both launchers document themselves. `up.sh --help` lists the apps, the `--nodes N|all`
+flag and every environment override; `down.sh --help` explains what teardown removes.
+
+The Symphony console is at `https://localhost:8443/platform` (`Admin` / `Admin`, behind a
+self-signed certificate). Expect three to six minutes to first paint after a fresh boot.
+
+<details>
+<summary><b>Build notes</b></summary>
+
 `ACCEPT_IBM_LICENSE=yes` is required and has no default. The image is built from IBM
-Spectrum Symphony Community Edition, so you accept IBM's licence yourself rather than this
-repository doing it for you. Without the flag the build stops before anything is downloaded
-and prints what it is asking you to agree to. See [Licensing](#licensing).
+Spectrum Symphony Community Edition, so you accept IBM's license yourself rather than this
+repository doing it for you. Without the flag the build stops before anything is
+downloaded and prints what it is asking you to agree to.
 
-The first build pulls ~1.5 GB (IBM's Symphony CE image) plus ~67 MB (CPython 3.12), so it
-takes a while; rebuilds are cached.
+The first build pulls about 1.5 GB (IBM's Symphony CE image) plus 67 MB (CPython 3.12), so
+it takes a while. Rebuilds are cached.
 
-Sanity-check a fresh build before launching anything; it asserts every invariant the apps
+Sanity-check a fresh build before launching anything. It asserts every invariant the apps
 depend on and names the exact one that broke:
 
 ```bash
 docker run --rm --entrypoint /usr/local/bin/verify-image symphony-akida --full
 ```
 
-The image pins **akida 2.19.2**; the tiled YOLOv2 checkpoint is serialized by it and 2.19.1
-refuses to deserialize it, so rebuild the image after pulling a change that touches
-`docker/`.
+The image pins **akida 2.19.2**. The tiled YOLOv2 checkpoint is serialized by it and
+2.19.1 refuses to deserialize it, so rebuild after pulling a change that touches `docker/`.
 
-Then open the app you want to run and follow its README. To switch demos, tear down and
-bring the other up:
-
-```bash
-./scripts/launch/down.sh && ./scripts/launch/up.sh <batch-inference|serial-http-round-robin|image-shard-inference>
-```
-
-`up.sh` takes `--nodes N|all` to choose how many chips to use. It defaults to 6 for
-`image-shard-inference`, one per tile of a 448 frame. Both launchers document themselves:
-`./scripts/launch/up.sh --help` lists the apps, flags and environment overrides, and
-`./scripts/launch/down.sh --help` explains what teardown removes.
+Full detail, including why the image is built the way it is:
+**[docs/image-build.md](docs/image-build.md)**.
 </details>
 
 <details>
@@ -78,6 +204,7 @@ scripts/    launch/  up.sh <app> [--nodes N|all] [--dataset <npz>] / down.sh, bo
             plus reference verification and mAP scoring
 models/     on-chip .fbz models + anchors (Git LFS)
 data/       one folder per dataset, one .npz in each, all Git LFS (see data/README.md)
+docs/       image-build.md and the images used by these READMEs
 src/
   common/   shared code: akida_chip (on-chip core), tiled_shard (tile geometry, decode and
             merge), detection_map (mAP), testkit (VOC test kit reader), draw_detections,
@@ -87,89 +214,51 @@ src/
     serial-http-round-robin/  per-node HTTP server + client + dashboard (serial)
     image-shard-inference/    3 SOAM services (segment/inference/stitch) + client + dashboard
 ```
+
+Everything the cluster writes at runtime lives under `.cluster/` in the repo, bind-mounted
+to `/shared`. Nothing is written to `/opt`, and teardown never needs `sudo`.
 </details>
 
-<details>
-<summary><b>Design constraints</b></summary>
+## Get the hardware
 
-- **Community Edition ≤ 64 cores** → master + 7 compute; an 8th chip idles.
-- **On-chip only**: a node with no mappable Akida device is not used for work.
-- **Six chips for the shard demo**: one per tile of a 448 frame; the sixth tile is the whole
-  frame downscaled, and dropping it costs more accuracy than dropping the other five.
-- **Repo-local**: everything under `.cluster/` (bind-mounted to `/shared`); no `/opt`, no host `sudo`.
-- **The image builds from public sources only**: clone and `docker build`, nothing from a
-  private registry. The Symphony CE tree is harvested out of IBM's own
-  `ibmcom/spectrum-symphony:7.3.2.0` (pinned by digest), CPython 3.12 from a pinned
-  python-build-standalone release, and `akida` from PyPI. See *How the image is built*.
-- **EL8 is forced, not chosen**: the akida wheel is `manylinux_2_28` and needs glibc ≥ 2.26
-  with GLIBCXX ≥ 3.4.22, so it cannot run on IBM's UBI 7.9 base; and Symphony's only Python
-  SOAM binding is a sourceless `.pyc` frozen to the CPython **3.6** ABI. EL8 is the only line
-  that ships python3.6 *and* supports python3.12. EL9 dropped python3.6. EL8 goes EOL
-  2029-05-31; past that, the options are a Symphony release with a modern Python binding, or
-  the C++ SOAM API behind a thin extension built for whatever Python is current.
-</details>
+- **[AKD1500 M.2 card (B+M key)](https://shop.brainchipinc.com/products/akd1500-m-2-card-b-m-key)**, the part this fleet is built from.
+- **[BrainChip Shop](https://shop.brainchipinc.com/collections/all?sort_by=best-selling)** for the AKD1000 PCIe board, the Raspberry Pi dev kits and the rest.
+- No hardware yet? **Akida Cloud** runs models on real Akida silicon remotely, through the
+  [BrainChip Developer Hub](https://developer.brainchip.com/signup/).
 
-<details>
-<summary><b>How the image is built</b></summary>
+## Community and support
 
-`docker/Dockerfile` is a two-stage build:
+Hit a problem reproducing a demo, or anything else in this repository?
+**[Open an issue](https://github.com/Brainchip-Inc/symphony-akida/issues)** and say what
+you ran, what happened, and what your fleet looks like.
 
-| stage | from | does |
-|---|---|---|
-| `symphony` | `ibmcom/spectrum-symphony:7.3.2.0`, digest-pinned | nothing; it exists only so the runtime stage can `COPY --from` the installed `/opt/ibm/spectrumcomputing` tree, including the `pythonapi_3.6.7` SOAM binding and the CE entitlement. IBM publishes CE only as an image, and the 3 GB installer is behind an IBMid, so harvesting is the only way to build this from a fresh clone |
-| runtime | `rockylinux/rockylinux:8.10` | OS prerequisites, `egoadmin` 1000:1000, the harvested tree, a fresh 10-year PKI, CPython 3.12 in `/opt/python3.12`, akida + numpy in `/opt/akida-venv`, then this repo's entrypoint and three app backends |
+- [Discord](https://discord.com/invite/9bmd9g52vn) for discussion and community help
+- [BrainChip Developer Hub](https://developer.brainchip.com/signup/) for tools, the model zoo and Akida Cloud
+- [Documentation](https://doc.brainchipinc.com) for MetaTF and the Akida platform
+- [Newsletter](https://brainchip.com/newsletter/) for releases and announcements
+- [Contact sales](https://brainchip.com/contact/) to talk about a deployment
+- [LinkedIn](https://www.linkedin.com/company/brainchip-holdings-limited) and [X](https://x.com/BrainChip_inc)
 
-Three build-time scripts do the work that makes the harvested tree usable, and each one fails
-the build rather than shipping something subtly wrong:
+## License
 
-- **`docker/patch_symphony.sh`**: extends the kernel-major check in `profile.soam` and
-  `profile.perf` (IBM's copies accept only 3/4/5, so on a 6.x host `BINARY_TYPE` stays `fail`
-  and every SOAM path resolves under `soam/7.3.2/fail/`), fixes `BINARY_TYPE` in
-  `webserverstart.sh` behind the `:8443` console, and restores the stock `ego.conf` and
-  SD/RS service definitions. The last part is deliberate: IBM's image turns on
-  `EGO_TRANSPORT_SECURITY=SSL` and sets `EGO_LIM_IS_IN_CONTAINER=Y`, neither of which this
-  demo has ever run on, and the latter changes how LIM counts cores, which matters because
-  the cluster sits exactly on the CE 64-core cap.
-- **`docker/gen_certs.sh`**: mints a fresh 10-year PKI. IBM's baked certificates are all
-  expired: the `wlp` leaf in January 2023, and `kernel/conf/server.pem` is the gSOAP sample
-  certificate that expired in **2005**. Their `generate_ssl.sh` cannot help, since its
-  openssl half is commented out and it re-signs with the expired CA. The script reads the
-  keystore password and aliases out of IBM's own keystores rather than assuming them, so
-  Liberty's `server.xml` keeps working untouched.
-- **`docker/verify_image.sh`**: the acceptance test, also installed as
-  `/usr/local/bin/verify-image`. It asserts `import soamapi` under python3.6, `import akida`
-  under python3.12, the `ldd` closure of IBM's RHEL7-era binaries now running on glibc 2.28,
-  that the bundled JRE runs, that `profile.platform` resolves `BINARY_TYPE` with no `/fail/`
-  paths, certificate validity, and that the `7.3.2` literal in the five wrapper scripts and
-  four XML profiles still matches the harvested tree.
+This repository is licensed under the **Apache License 2.0**. See [LICENSE](LICENSE).
 
-The EGO base transport runs in plaintext, as this demo always has. The regenerated PKI still
-serves the console on `:8443` and satisfies `ego.conf`'s `EGO_*_TS_PARAMS`.
-</details>
+It contains no IBM or BrainChip proprietary binaries. `docker build` fetches them, and
+they keep their own terms:
 
-## Licensing
+- **IBM Spectrum Symphony Community Edition 7.3.2** is pulled from IBM's public image
+  [`ibmcom/spectrum-symphony`](https://hub.docker.com/r/ibmcom/spectrum-symphony/), pinned
+  by digest, and licensed by IBM under IBM's terms. That is why `docker build` requires
+  `--build-arg ACCEPT_IBM_LICENSE=yes`: you accept those terms yourself, and there is no
+  default. The full text ships inside the built image at `/licenses`, and the Community
+  Edition entitlement comes from IBM's own image, not from this repository.
+- **BrainChip MetaTF (`akida`)** is installed from PyPI at build time under the
+  [BrainChip Software End User License Agreement](https://doc.brainchipinc.com/license.html).
 
-This repository contains no IBM or BrainChip binaries. `docker build` fetches them, and the
-terms below are the ones that apply to what it fetches.
-
-**IBM Spectrum Symphony Community Edition 7.3.2.** The image is built from IBM's public
-container image [`ibmcom/spectrum-symphony:7.3.2.0`](https://hub.docker.com/r/ibmcom/spectrum-symphony),
-pinned by digest in `docker/Dockerfile`, and the build copies the installed Symphony tree out
-of it. That software is licensed by IBM under IBM's terms, separately from this repository's
-licence. `docker build` therefore requires `--build-arg ACCEPT_IBM_LICENSE=yes`; there is no
-default, and without it the build stops before contacting IBM's registry. The full licence
-text ships inside the built image at `/licenses` (`LA_*` license agreement, `LI_*` license
-information, `Lic_*`, `non_ibm_license.txt`, `notices.txt`), and `LI_en.txt` names the program
-as *IBM Spectrum Symphony Community Edition, 7.3 (Community)*. The Community Edition
-entitlement file the cluster uses comes from IBM's own image; this repository supplies no
-licence key.
-
-**BrainChip akida (MetaTF).** Installed from PyPI at build time, pinned in
-`docker/Dockerfile`, under BrainChip's terms for that package.
-
-A consolidated third-party notice covering IBM, MetaTF and this repository's own licence is
-still to be written.
+[NOTICE](NOTICE) carries the consolidated attributions, including the provenance and terms
+of every dataset under `data/`.
 
 ## Contributing
 
-Commit convention and hook install: [CONTRIBUTING.md](CONTRIBUTING.md).
+This repository is maintained by BrainChip and does not accept unsolicited pull requests.
+Bug reports are welcome as issues. See [CONTRIBUTING.md](CONTRIBUTING.md).
